@@ -1,0 +1,8 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    // nodejs_compat : node:* est disponible dans le Worker ; process sert aussi à cloudflare.config.ts.
+    "types": ["node"]
+  },
+  "include": ["src", "test", "cloudflare.config.ts", ".cloudflare/types"]
+}

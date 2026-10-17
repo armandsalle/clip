@@ -1,0 +1,48 @@
+packages:
+  - apps/*
+  - packages/*
+
+catalogMode: prefer
+
+# Versions figées exactement : cf, le plugin Vite Cloudflare et les modules
+# "unstable" d'Effect peuvent casser en version mineure.
+catalog:
+  "@clip/web": workspace:*
+  "@cloudflare/vite-plugin": 2.0.0-beta.v.1
+  "@effect/sql-pg": 4.0.5
+  "@effect/sql-pglite": 4.0.5
+  "@effect/tsgo": 0.53.3
+  "@effect/vitest": 4.0.5
+  "@types/node": ^24
+  "@types/react": 19.3.0
+  "@types/react-dom": 19.3.0
+  "@vitejs/plugin-react": 6.1.2
+  cf: 1.0.0-beta.18
+  drizzle-kit: 1.0.0-rc.5-5935859
+  drizzle-orm: 1.0.0-rc.5-5935859
+  effect: 4.0.5
+  hls.js: 1.7.3
+  react: 19.3.1
+  react-dom: 19.3.1
+  typescript: ^7.0.2
+  vite: npm:@voidzero-dev/vite-plus-core@1.3.0
+  vite-plus: 1.3.0
+overrides:
+  vite@*: "catalog:"
+peerDependencyRules:
+  allowAny:
+    - vite
+  allowedVersions:
+    vite: "*"
+allowBuilds:
+  esbuild: true
+  workerd: true
+minimumReleaseAgeExclude:
+  - "@effect/tsgo-darwin-arm64@0.53.3"
+  - "@effect/tsgo-darwin-x64@0.53.3"
+  - "@effect/tsgo-linux-arm64@0.53.3"
+  - "@effect/tsgo-linux-arm@0.53.3"
+  - "@effect/tsgo-linux-x64@0.53.3"
+  - "@effect/tsgo-win32-arm64@0.53.3"
+  - "@effect/tsgo-win32-x64@0.53.3"
+  - "@effect/tsgo@0.53.3"
