@@ -1,4 +1,5 @@
 import { bindings, defineConfig, defineContainer, exports, triggers } from "cf/config";
+import { fileURLToPath } from "node:url";
 import * as entrypoint from "./src/index.ts" with { type: "cf-worker" };
 
 // Planche de vignettes (aperçu au survol de la timeline) : ffmpeg hors du Worker.
@@ -6,6 +7,14 @@ const storyboard = defineContainer({
   name: "clip-storyboard",
   image: { dockerfile: "./containers/storyboard/Dockerfile" },
 });
+
+// Variables Neon (`neon deploy` / `neon env pull`) : lues ici, car cf ne lit pas les .env.
+try {
+  process.loadEnvFile(fileURLToPath(new URL("../../.env.local", import.meta.url).href));
+} catch {
+  // pas de .env.local : stockage en mémoire par défaut
+}
+const databaseUrl = process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL;
 
 export default defineConfig(({ mode }) => {
   const name = mode === "production" ? "clip-api" : `clip-api-${mode ?? "dev"}`;
@@ -37,7 +46,8 @@ export default defineConfig(({ mode }) => {
         runWorkerFirst: ["/api/*", "/dev/*", "/media/*"],
       },
       env: {
-        STORE: bindings.text(process.env.CLIP_STORE ?? "memory"),
+        // Neon dès qu'une URL est disponible ; CLIP_STORE=memory force le stockage en mémoire.
+        STORE: bindings.text(process.env.CLIP_STORE ?? (databaseUrl ? "postgres" : "memory")),
         REMOTE: bindings.text(remote ? "1" : "0"),
         CHAOS: bindings.text(process.env.CLIP_CHAOS ?? "0"),
         // Vidéo et médias
@@ -46,10 +56,10 @@ export default defineConfig(({ mode }) => {
         IMAGES: bindings.images(),
         // Données
         DB: bindings.hyperdrive({
-          id: process.env.CLIP_HYPERDRIVE_ID ?? "local",
+          // Config Hyperdrive « clip-neon » (connexion directe vers Neon, eu-central-1).
+          id: process.env.CLIP_HYPERDRIVE_ID ?? "db72ca80c92e4ba5978e21c0e2121ae8",
           dev: {
-            connectionString:
-              process.env.DATABASE_URL ?? "postgres://postgres:postgres@localhost:5432/clip",
+            connectionString: databaseUrl ?? "postgres://postgres:postgres@localhost:5432/clip",
           },
         }),
         CACHE: bindings.kv(),

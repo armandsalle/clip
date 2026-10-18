@@ -2,7 +2,7 @@
 
 Clip est une démo « à la Grain » 100 % Cloudflare : on dépose une vidéo, sans compte, et elle devient un stream avec transcription, résumé, chapitres, miniatures, commentaires horodatés en direct et questions-réponses. Le produit (flows, UX, écrans) est décrit dans [PRODUCT.md](PRODUCT.md). Ce document décrit la tech.
 
-État au 2026-10-17 : le parcours complet tourne en local (`cf dev`) avec un faux Stream et une IA factice. Rien n'est déployé ; ni Stream, ni Workers AI, ni Neon n'ont été testés pour de vrai.
+État au 2026-10-18 : le parcours complet tourne en local (`cf dev`) contre la vraie base Neon (via l'émulation locale d'Hyperdrive), avec un faux Stream et une IA factice. Rien n'est déployé ; Stream et Workers AI n'ont pas encore été testés pour de vrai.
 
 ## Stack et versions
 
@@ -74,7 +74,7 @@ Chaque étape publie ses états (Running avec le numéro de tentative, Done avec
 | Temps réel, présence                       | Durable Object `VideoRoom` (WebSockets hibernables)                                                                  | fait, vérifié en local                                |
 | Transcription                              | Workers AI (Whisper large v3 turbo) sur la piste audio Stream                                                        | code écrit ; factice en local                         |
 | Titre, résumé, chapitres                   | Workers AI (Llama 3.3 70B, sortie JSON)                                                                              | code écrit ; factice en local                         |
-| Stockage                                   | Neon via Hyperdrive + Drizzle                                                                                        | testé contre PGlite ; mémoire en local                |
+| Stockage                                   | Neon (eu-central-1) via Hyperdrive `clip-neon` + Drizzle, une connexion par appel                                    | testé contre PGlite et contre Neon en local           |
 | Secrets d'admin                            | SHA-256 (WebCrypto), seul le hash est stocké                                                                         | fait                                                  |
 | Médias (miniatures importées, faux Stream) | R2                                                                                                                   | fait                                                  |
 | Planche de vignettes                       | Container (ffmpeg) piloté par le DO `Storyboard`                                                                     | placeholder, désactivé                                |
@@ -124,16 +124,16 @@ CLIP_CONTAINERS=0 vp run dev           # cf dev : faux Stream, IA factice, stock
 CLIP_CONTAINERS=0 CLIP_CHAOS=0.5 vp run dev   # mode chaos : 50 % d'échecs, retries visibles
 ```
 
-| Variable               | Défaut                                             | Effet                                                                      |
-| ---------------------- | -------------------------------------------------- | -------------------------------------------------------------------------- |
-| `CLIP_REMOTE`          | non défini                                         | `1` : vrai Stream, Workers AI, AI Search, Flagship (après `cf auth login`) |
-| `CLIP_STORE`           | `memory`                                           | `postgres` : Neon via Hyperdrive                                           |
-| `DATABASE_URL`         | `postgres://postgres:postgres@localhost:5432/clip` | Postgres local derrière Hyperdrive                                         |
-| `CLIP_HYPERDRIVE_ID`   | `local`                                            | id de la config Hyperdrive (déploiement)                                   |
-| `CLIP_FLAGSHIP_APP_ID` | vide                                               | app Flagship                                                               |
-| `CLIP_CHAOS`           | `0`                                                | probabilité d'échec injectée dans chaque tentative d'étape                 |
-| `CLIP_CONTAINERS`      | activé                                             | `0` retire le container (pas de Docker)                                    |
-| `CLIP_DOMAIN`          | `clip.bonjour.pizza`                               | domaine de l'app et des emails                                             |
+| Variable                | Défaut                                                  | Effet                                                                      |
+| ----------------------- | ------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `CLIP_REMOTE`           | non défini                                              | `1` : vrai Stream, Workers AI, AI Search, Flagship (après `cf auth login`) |
+| `CLIP_STORE`            | `postgres` si une URL Neon est présente, sinon `memory` | `memory` force le stockage en mémoire                                      |
+| `DATABASE_URL_UNPOOLED` | lu dans `.env.local` (`neon env pull`)                  | connexion directe à Neon, utilisée en dev et pour les migrations           |
+| `CLIP_HYPERDRIVE_ID`    | `db72ca80…` (`clip-neon`)                               | id de la config Hyperdrive                                                 |
+| `CLIP_FLAGSHIP_APP_ID`  | vide                                                    | app Flagship                                                               |
+| `CLIP_CHAOS`            | `0`                                                     | probabilité d'échec injectée dans chaque tentative d'étape                 |
+| `CLIP_CONTAINERS`       | activé                                                  | `0` retire le container (pas de Docker)                                    |
+| `CLIP_DOMAIN`           | `clip.bonjour.pizza`                                    | domaine de l'app et des emails                                             |
 
 ## Compatibilité vérifiée
 
@@ -149,6 +149,10 @@ CLIP_CONTAINERS=0 CLIP_CHAOS=0.5 vp run dev   # mode chaos : 50 % d'échecs, ret
 
 ## Pièges relevés
 
+- Workers + Postgres : une connexion TCP ouverte pendant une requête ne peut pas servir à une autre ; un pool construit au niveau du module fait bloquer la requête suivante (« Worker's code had hung »). `Store.layerPerCall` construit une base Drizzle par appel ; Hyperdrive fait le pooling côté Cloudflare.
+- `neon init` installe ses plugins d'agents avec `npm` dans le projet, ce qui échoue (`devEngines` exige pnpm) et interrompt tout : relancer avec `--no-agent-setup --package-manager pnpm`, puis ajouter `@neon/config` et `@neon/env` à la racine avec `-w`.
+- `drizzle-kit migrate` a besoin d'un driver Node classique : `pg` en dépendance de dev de `apps/api`.
+
 - Effect v4 : `Schema.DateTimeUtc` n'a pas d'encodage texte hors codec JSON. Le domaine utilise `Schema.DateTimeUtcFromString`, pour que les types encodés soient du JSON typé (stockable tel quel en JSONB).
 - Drizzle v1 : la casse se règle par table (`snakeCase.table`) ; l'option `casing` de `drizzle-kit` est ignorée.
 - `vp run` filtre les variables d'environnement des tâches en cache. Les commandes `cf` du Worker sont des tâches Vite+ (`apps/api/vite.config.ts`) : `dev` et `deploy` sans cache, `build` en cache avec `CLIP_*` et `DATABASE_URL` dans l'empreinte.
@@ -161,9 +165,8 @@ CLIP_CONTAINERS=0 CLIP_CHAOS=0.5 vp run dev   # mode chaos : 50 % d'échecs, ret
 
 1. **Front, suite** : Q&R (attend l'API AI Search), extraits, réactions emoji, carte de partage.
 2. **Vrai Stream et Workers AI** (`CLIP_REMOTE=1`) : upload direct, téléchargement audio, Whisper, résumé.
-3. **Neon** : projet et branche, migrations (`drizzle-kit migrate`), Hyperdrive, `CLIP_STORE=postgres`.
-4. **Boucle email** : notification groupée par Queue, adresse de réponse par commentaire, réponse publiée en direct.
-5. **Questions sur la vidéo** : indexation AI Search, réponse en streaming avec timecodes.
-6. **Miniatures** : choix d'une image sur la timeline, image importée (R2 + Images), carte de partage, planche de vignettes (Container).
-7. **Flagship** à la place de `CLIP_CHAOS` et de `Features`, traces Effect exportées.
-8. **CI et déploiement** : `setup-vp`, `vp check`, `vp run -r test`, `cf deploy --mode pr-<n>`.
+3. **Boucle email** : notification groupée par Queue, adresse de réponse par commentaire, réponse publiée en direct.
+4. **Questions sur la vidéo** : indexation AI Search, réponse en streaming avec timecodes.
+5. **Miniatures** : choix d'une image sur la timeline, image importée (R2 + Images), carte de partage, planche de vignettes (Container).
+6. **Flagship** à la place de `CLIP_CHAOS` et de `Features`, traces Effect exportées.
+7. **CI et déploiement** : `setup-vp`, `vp check`, `vp run -r test`, `cf deploy --mode pr-<n>`.

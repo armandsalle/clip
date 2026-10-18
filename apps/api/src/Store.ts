@@ -80,6 +80,38 @@ export class Store extends Context.Service<
     });
   });
 
+  /**
+   * Une connexion par appel : sur Workers, une connexion TCP ouverte pendant une
+   * requête ne peut pas servir à une autre (la requête suivante resterait bloquée).
+   * Hyperdrive fait le pooling côté Cloudflare, donc ouvrir une connexion est peu
+   * coûteux. Chaque appel construit sa propre base Drizzle, fermée à la fin.
+   */
+  static readonly layerPerCall = <E>(db: Layer.Layer<Db, E>) => {
+    const scoped = Store.layerDrizzle.pipe(Layer.provide(db), Layer.orDie);
+    const call =
+      <K extends keyof Store["Service"]>(key: K) =>
+      (...args: Parameters<Store["Service"][K]>) =>
+        Store.use((store) =>
+          (store[key] as (...a: typeof args) => Effect.Effect<unknown, VideoNotFound | Forbidden>)(
+            ...args,
+          ),
+        ).pipe(Effect.provide(scoped));
+    return Layer.succeed(
+      Store,
+      Store.of({
+        createVideo: call("createVideo"),
+        getVideo: call("getVideo"),
+        saveVideo: call("saveVideo"),
+        checkAdmin: call("checkAdmin"),
+        ownerEmail: call("ownerEmail"),
+        enrichments: call("enrichments"),
+        setEnrichment: call("setEnrichment"),
+        comments: call("comments"),
+        addComment: call("addComment"),
+      } as unknown as Store["Service"]),
+    );
+  };
+
   static readonly layerDrizzle = Layer.effect(
     Store,
     Effect.gen(function* () {

@@ -26,10 +26,10 @@ const remote = env.REMOTE === "1";
 
 const StoreLive =
   env.STORE === "postgres"
-    ? Store.layerDrizzle.pipe(
-        Layer.provide(Db.layerPg),
-        Layer.provide(PgClient.layer({ url: Redacted.make(env.DB.connectionString) })),
-        Layer.orDie,
+    ? Store.layerPerCall(
+        Db.layerPg.pipe(
+          Layer.provide(PgClient.layer({ url: Redacted.make(env.DB.connectionString) })),
+        ),
       )
     : Store.layerMemory;
 
