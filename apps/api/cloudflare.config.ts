@@ -66,13 +66,18 @@ export default defineConfig(({ mode }) => {
         NOTIFICATIONS: bindings.queue({ name: `${name}-notifications` }),
         // IA
         AI: remote && bindings.ai({ dev: { remote: true } }),
-        SEARCH: remote && bindings.aiSearch({ name: "clip-transcripts", dev: { remote: true } }),
+        // AI Search et Flagship : seulement une fois l'instance / l'app créées (sinon cf dev échoue).
+        SEARCH:
+          remote &&
+          !!process.env.CLIP_AI_SEARCH &&
+          bindings.aiSearch({ name: process.env.CLIP_AI_SEARCH, dev: { remote: true } }),
         // Messagerie et pilotage
         MAIL: bindings.sendEmail({ allowedSenderAddresses: [`notifications@${domain}`] }),
         DOMAIN: bindings.text(domain),
         FLAGS:
           remote &&
-          bindings.flagship({ id: process.env.CLIP_FLAGSHIP_APP_ID ?? "", dev: { remote: true } }),
+          !!process.env.CLIP_FLAGSHIP_APP_ID &&
+          bindings.flagship({ id: process.env.CLIP_FLAGSHIP_APP_ID, dev: { remote: true } }),
         // Orchestration et temps réel
         PIPELINE: bindings.workflow({
           name: "video-pipeline",

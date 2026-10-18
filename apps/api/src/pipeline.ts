@@ -150,7 +150,14 @@ export const transcript = (videoId: VideoId) =>
       "transcript",
       Effect.gen(function* () {
         const { video, duration } = yield* readyVideo(videoId);
-        const audio = yield* StreamVideos.use((s) => s.audio(video.streamUid));
+        // Stream prépare la piste audio à la demande : on la sonde jusqu'à 2 minutes.
+        const audio = yield* StreamVideos.use((s) => s.audio(video.streamUid)).pipe(
+          Effect.repeat({
+            until: (a) => a !== null,
+            schedule: Schedule.spaced("3 seconds"),
+            times: 40,
+          }),
+        );
         if (audio === null)
           return yield* new StepFailed({ kind: "transcript", message: "audio pas encore prêt" });
         const segments = yield* Transcriber.use((t) => t.transcribe(audio, duration));
