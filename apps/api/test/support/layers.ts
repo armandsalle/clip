@@ -2,7 +2,16 @@ import { Effect, Layer } from "effect";
 import { StreamUid } from "@clip/domain";
 import { Summarizer, Transcriber } from "../../src/Ai.ts";
 import { Features } from "../../src/pipeline.ts";
-import { AdminKeys, Live, Pipeline, StreamVideos } from "../../src/Platform.ts";
+import {
+  AdminKeys,
+  Live,
+  Mailer,
+  Notifications,
+  Pipeline,
+  StreamVideos,
+  type CommentNotification,
+  type OutgoingEmail,
+} from "../../src/Platform.ts";
 import { Store } from "../../src/Store.ts";
 
 /** Sous-titres envoyés au Stream de test (pour les assertions). */
@@ -38,6 +47,22 @@ export const StreamTest = Layer.succeed(
   }),
 );
 
+/** Emails envoyés et notifications enfilées (pour les assertions). */
+export const sentEmails: Array<OutgoingEmail> = [];
+export const queued: Array<CommentNotification> = [];
+
+const MailerTest = Layer.succeed(
+  Mailer,
+  Mailer.of({
+    domain: "clip.test",
+    send: (email) => Effect.sync(() => void sentEmails.push(email)),
+  }),
+);
+const NotificationsTest = Layer.succeed(
+  Notifications,
+  Notifications.of({ enqueue: (n) => Effect.sync(() => void queued.push(n)) }),
+);
+
 /** Toutes les dépendances en mémoire, IA factice, pas de chaos. */
 export const TestPlatform = Layer.mergeAll(
   Store.layerMemory,
@@ -48,4 +73,6 @@ export const TestPlatform = Layer.mergeAll(
   Transcriber.layerFake,
   Summarizer.layerFake,
   Features.layer({ ai: true, storyboard: false, chaos: 0 }),
+  MailerTest,
+  NotificationsTest,
 );

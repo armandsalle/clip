@@ -14,7 +14,14 @@ import {
   type VideoEvent,
 } from "@clip/domain";
 import { Chapter, ClipApi, TranscriptSegment, VideoView } from "@clip/contract";
-import { AdminKeys, Live, Pipeline, StreamVideos, type StreamDetails } from "./Platform.ts";
+import {
+  AdminKeys,
+  Live,
+  Notifications,
+  Pipeline,
+  StreamVideos,
+  type StreamDetails,
+} from "./Platform.ts";
 import { Store } from "./Store.ts";
 
 const MAX_DURATION_SECONDS = 3600;
@@ -50,6 +57,7 @@ export const VideosHandlers = HttpApiBuilder.group(
     const keys = yield* AdminKeys;
     const live = yield* Live;
     const pipeline = yield* Pipeline;
+    const notifications = yield* Notifications;
 
     const summaryOf = decodeOption(SummaryResult);
     const transcriptOf = decodeOption(TranscriptResult);
@@ -192,6 +200,7 @@ export const VideosHandlers = HttpApiBuilder.group(
           });
           yield* store.addComment(comment);
           yield* live.publish(video.id, { _tag: "CommentAdded", comment });
+          yield* notifications.enqueue({ videoId: video.id, commentId: comment.id });
           return comment;
         }),
     });

@@ -11,7 +11,8 @@
     "@clip/domain": "workspace:*",
     "@effect/sql-pg": "catalog:",
     "drizzle-orm": "catalog:",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "postal-mime": "catalog:"
   },
   "devDependencies": {
     "@clip/web": "catalog:",

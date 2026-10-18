@@ -23,6 +23,7 @@ catalog:
   drizzle-kit: 1.0.0-rc.5-5935859
   drizzle-orm: 1.0.0-rc.5-5935859
   effect: 4.0.5
+  postal-mime: 4.0.11
   pg: 8.23.1
   hls.js: 1.7.3
   react: 19.3.1
@@ -50,3 +51,4 @@ minimumReleaseAgeExclude:
   - "@effect/tsgo-win32-arm64@0.53.3"
   - "@effect/tsgo-win32-x64@0.53.3"
   - "@effect/tsgo@0.53.3"
+  - postal-mime@4.0.11

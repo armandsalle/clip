@@ -40,6 +40,7 @@ export const enrichmentKind = pgEnum("enrichment_kind", [
   "storyboard",
   "shareCard",
   "index",
+  "notify",
 ]);
 
 export const videos = snakeCase.table(
@@ -89,6 +90,8 @@ export const comments = snakeCase.table(
     body: text().notNull(),
     time: doublePrecision().notNull(),
     via: text().$type<"web" | "email">().notNull(),
+    /** Jeton aléatoire de l'adresse reply+<jeton>@… (réponse par email). */
+    replyToken: text().unique(),
     createdAt: timestamp({ withTimezone: true }).notNull(),
   },
   (t) => [

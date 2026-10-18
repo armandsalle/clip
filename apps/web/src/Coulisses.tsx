@@ -251,6 +251,15 @@ export const Coulisses = ({ id }: { id: VideoId }) => {
               </div>
               <div className="branch">
                 <Branch
+                  label="email « vidéo prête »"
+                  status={steps.notify}
+                  flash={flashes.notify}
+                  via="Email Service"
+                  now={now}
+                />
+              </div>
+              <div className="branch">
+                <Branch
                   label="qualité HD"
                   status={steps.hd}
                   flash={flashes.hd}

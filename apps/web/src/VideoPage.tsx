@@ -403,6 +403,74 @@ const EXPIRIES: ReadonlyArray<[Expiry, string]> = [
   ["30d", "30 j"],
 ];
 
+/** Email du propriétaire : notifications de commentaires et réponses par email. */
+const EmailSetting = ({
+  videoId,
+  update,
+  onToast,
+}: {
+  videoId: string;
+  update: (payload: typeof UpdateVideo.Type) => Promise<boolean>;
+  onToast: (message: string) => void;
+}) => {
+  const key = `clip:email:${videoId}`;
+  const [saved, setSaved] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem(key);
+    } catch {
+      return null;
+    }
+  });
+  const [value, setValue] = useState(saved ?? "");
+  const remember = (email: string | null) => {
+    setSaved(email);
+    try {
+      if (email === null) localStorage.removeItem(key);
+      else localStorage.setItem(key, email);
+    } catch {
+      // stockage indisponible : l'email reste enregistré côté serveur
+    }
+  };
+  const save = async (email: string | null) => {
+    // Marqué comme enregistré seulement si le serveur confirme.
+    if (!(await update({ email }))) return;
+    remember(email);
+    onToast(email === null ? "Notifications désactivées" : `Notifications envoyées à ${email}`);
+  };
+  return (
+    <div className="owner-block">
+      <span className="owner-label">Notifications</span>
+      <form
+        className="email-row"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (value.includes("@")) void save(value.trim());
+        }}
+      >
+        <input
+          type="email"
+          placeholder="votre@email.fr"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+        />
+        <button type="submit" disabled={!value.includes("@")}>
+          {saved ? "Enregistrer" : "Activer"}
+        </button>
+        {saved && (
+          <button type="button" className="link-danger" onClick={() => void save(null)}>
+            Retirer
+          </button>
+        )}
+      </form>
+      <span className="owner-hint">
+        {saved
+          ? `Les nouveaux commentaires arrivent sur ${saved} ; répondez à l'email pour répondre.`
+          : "Recevez les commentaires par email et répondez-y depuis votre messagerie."}
+      </span>
+    </div>
+  );
+};
+
 const OwnerControls = ({
   view,
   adminKey,
@@ -417,14 +485,21 @@ const OwnerControls = ({
   onToast: (message: string) => void;
 }) => {
   const video = view.video;
-  const update = (payload: typeof UpdateVideo.Type) =>
+  /** `true` si le serveur a confirmé ; sinon un message d'erreur est affiché. */
+  const update = (payload: typeof UpdateVideo.Type): Promise<boolean> =>
     call((api) =>
       api.videos.update({
         params: { id: video.id },
         headers: { "x-clip-admin": adminKey },
         payload,
       }),
-    ).catch((e: unknown) => onToast(e instanceof Error ? e.message : "Modification impossible."));
+    ).then(
+      () => true,
+      (e: unknown) => {
+        onToast(e instanceof Error ? e.message : "Modification impossible.");
+        return false;
+      },
+    );
 
   const selected = video.thumbnail._tag === "Frame" ? video.thumbnail.time : null;
   const base = view.playback ? thumbBase(view.playback.thumbnail) : null;
@@ -444,8 +519,8 @@ const OwnerControls = ({
                 className={`thumb ${selected !== null && Math.abs(selected - t) < 0.5 ? "selected" : ""}`}
                 title={`Image à ${formatTime(t)}`}
                 onClick={() =>
-                  void update({ thumbnail: { _tag: "Frame", time: t } }).then(() =>
-                    onToast("Miniature mise à jour"),
+                  void update({ thumbnail: { _tag: "Frame", time: t } }).then(
+                    (ok) => ok && onToast("Miniature mise à jour"),
                   )
                 }
               >
@@ -457,8 +532,8 @@ const OwnerControls = ({
             className={`thumb timeline ${selected !== null && !suggestions.some((s) => Math.abs(s - selected) < 0.5) ? "selected" : ""}`}
             disabled={!playable}
             onClick={() =>
-              void update({ thumbnail: { _tag: "Frame", time: Math.floor(time) } }).then(() =>
-                onToast(`Miniature : image à ${formatTime(time)}`),
+              void update({ thumbnail: { _tag: "Frame", time: Math.floor(time) } }).then(
+                (ok) => ok && onToast(`Miniature : image à ${formatTime(time)}`),
               )
             }
           >
@@ -471,6 +546,7 @@ const OwnerControls = ({
             : "suggestions en cours…"}
         </span>
       </div>
+      <EmailSetting videoId={video.id} update={update} onToast={onToast} />
       <div className="owner-block">
         <span className="owner-label">Expiration</span>
         <div className="segmented">

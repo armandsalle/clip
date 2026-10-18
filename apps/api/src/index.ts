@@ -13,7 +13,16 @@ import { Summarizer, Transcriber } from "./Ai.ts";
 import { Db } from "./db/Db.ts";
 import { ApiRoutes } from "./http.ts";
 import * as Pipeline_ from "./pipeline.ts";
-import { AdminKeys, Live, Pipeline, StreamVideos } from "./Platform.ts";
+import PostalMime from "postal-mime";
+import {
+  AdminKeys,
+  Live,
+  Mailer,
+  Notifications,
+  Pipeline,
+  StreamVideos,
+  type CommentNotification,
+} from "./Platform.ts";
 import { Store } from "./Store.ts";
 import { isReady, verifyStreamWebhook } from "./webhook.ts";
 
@@ -63,6 +72,8 @@ const PlatformLive = Layer.mergeAll(
   AdminKeys.layer,
   Live.layer(env.VIDEO_ROOM),
   Pipeline.layer(env.PIPELINE),
+  Mailer.layer(env.MAIL, env.DOMAIN),
+  Notifications.layer(env.NOTIFICATIONS as Queue<CommentNotification>),
   Pipeline_.Features.layer({ ai: true, storyboard: false, chaos: Number(env.CHAOS) || 0 }),
 );
 
@@ -166,12 +177,28 @@ export default {
     return app.handler(request);
   },
   async queue(batch) {
-    // Notifications de commentaires (regroupées, puis envoyées par Email Service).
-    for (const message of batch.messages) message.ack();
+    // Notifications de commentaires : un email par vidéo pour toute la rafale.
+    try {
+      await runtime.runPromise(
+        Pipeline_.notifyComments(batch.messages.map((m) => m.body as CommentNotification)),
+      );
+      batch.ackAll();
+    } catch (error) {
+      console.error("notifications", error);
+      batch.retryAll({ delaySeconds: 30 });
+    }
   },
   async email(message) {
     // Réponse à une notification : publiée sous le commentaire visé.
-    console.log("inbound email", message.to);
+    const parsed = await PostalMime.parse(message.raw);
+    const result = await runtime.runPromise(
+      Pipeline_.replyByEmail({
+        to: message.to,
+        from: parsed.from?.address ?? message.from,
+        text: parsed.text ?? "",
+      }).pipe(Effect.result),
+    );
+    if (result._tag === "Failure") message.setReject(`Clip : ${result.failure.reason}`);
   },
 } satisfies ExportedHandler<Env>;
 
@@ -245,11 +272,12 @@ export class VideoPipeline extends WorkflowEntrypoint<Env, { videoId: string }> 
     };
 
     await Promise.all([
+      // L'email « vidéo prête » part quand titre, résumé et chapitres sont là.
+      audioChain().then(() => step.do("notify", json(Pipeline_.notify(videoId)))),
       step.do("thumbnail", json(Pipeline_.thumbnail(videoId))),
       step.do("suggestions", json(Pipeline_.suggestions(videoId))),
       step.do("storyboard", json(Pipeline_.storyboard(videoId))),
       step.do("shareCard", json(Pipeline_.shareCard(videoId))),
-      audioChain(),
       hdChain(),
     ]);
 

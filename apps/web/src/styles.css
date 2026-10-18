@@ -1353,3 +1353,15 @@ button {
   place-items: center;
   pointer-events: none;
 }
+
+/* Réglage email (propriétaire) */
+.email-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.email-row input {
+  flex: 1 1 200px;
+  min-width: 0;
+}

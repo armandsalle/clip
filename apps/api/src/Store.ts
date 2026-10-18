@@ -2,6 +2,7 @@ import { Context, Effect, Layer, Schema } from "effect";
 import { asc, eq, sql } from "drizzle-orm";
 import {
   Comment,
+  type CommentId,
   EnrichmentStatus,
   Forbidden,
   Video,
@@ -20,6 +21,24 @@ export interface EnrichmentRecord {
 
 // Stockage des vidéos, enrichissements et commentaires. Deux implémentations :
 // Drizzle (Neon via Hyperdrive, testée contre PGlite) et mémoire (cf dev sans Postgres).
+
+/** Ligne `comments` → entrée encodée du Schema Comment (sans le jeton de réponse). */
+const commentInput = (r: typeof comments.$inferSelect) => ({
+  id: r.id,
+  videoId: r.videoId,
+  parentId: r.parentId,
+  author: r.author,
+  body: r.body,
+  time: r.time,
+  via: r.via,
+  createdAt: r.createdAt.toISOString(),
+});
+
+/** Jeton de réponse : 16 octets aléatoires en base32 minuscule (sûr dans une adresse email). */
+const newReplyToken = () => {
+  const alphabet = "abcdefghijklmnopqrstuvwxyz234567";
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => alphabet[b % 32]).join("");
+};
 
 export class Store extends Context.Service<
   Store,
@@ -41,13 +60,19 @@ export class Store extends Context.Service<
       result?: unknown,
     ): Effect.Effect<void>;
     comments(id: VideoId): Effect.Effect<ReadonlyArray<Comment>>;
-    addComment(comment: Comment): Effect.Effect<void>;
+    /** Enregistre le commentaire et renvoie son jeton de réponse par email. */
+    addComment(comment: Comment): Effect.Effect<string>;
+    /** Commentaire visé par une adresse reply+<jeton>@… */
+    findCommentByReplyToken(token: string): Effect.Effect<Comment | null>;
+    /** Jeton de réponse d'un commentaire (null pour les anciens commentaires). */
+    replyTokenOf(commentId: CommentId): Effect.Effect<string | null>;
   }
 >()("@clip/api/Store") {
   static readonly layerMemory = Layer.sync(Store, () => {
     const vids = new Map<VideoId, { video: Video; hash: string; email: string | null }>();
     const enrich = new Map<VideoId, Map<EnrichmentKind, EnrichmentRecord>>();
     const comms = new Map<VideoId, Array<Comment>>();
+    const tokens = new Map<string, Comment>();
     const find = (id: VideoId) =>
       Effect.fromNullishOr(vids.get(id)).pipe(Effect.mapError(() => new VideoNotFound({ id })));
 
@@ -80,9 +105,15 @@ export class Store extends Context.Service<
       comments: (id) =>
         Effect.sync(() => [...(comms.get(id) ?? [])].sort((a, b) => a.time - b.time)),
       addComment: (comment) =>
-        Effect.sync(
-          () => void comms.set(comment.videoId, [...(comms.get(comment.videoId) ?? []), comment]),
-        ),
+        Effect.sync(() => {
+          comms.set(comment.videoId, [...(comms.get(comment.videoId) ?? []), comment]);
+          const token = newReplyToken();
+          tokens.set(token, comment);
+          return token;
+        }),
+      findCommentByReplyToken: (token) => Effect.sync(() => tokens.get(token) ?? null),
+      replyTokenOf: (commentId) =>
+        Effect.sync(() => [...tokens].find(([, c]) => c.id === commentId)?.[0] ?? null),
     });
   });
 
@@ -102,20 +133,30 @@ export class Store extends Context.Service<
             ...args,
           ),
         ).pipe(Effect.provide(scoped));
+    // Liste exhaustive vérifiée par TypeScript : une méthode ajoutée au service sans
+    // être relayée ici ne compile plus (c'est ainsi que `setOwnerEmail` avait été oubliée).
+    const methods = {
+      createVideo: true,
+      getVideo: true,
+      findByStreamUid: true,
+      saveVideo: true,
+      checkAdmin: true,
+      ownerEmail: true,
+      setOwnerEmail: true,
+      enrichments: true,
+      setEnrichment: true,
+      comments: true,
+      addComment: true,
+      findCommentByReplyToken: true,
+      replyTokenOf: true,
+    } satisfies Record<keyof Store["Service"], true>;
     return Layer.succeed(
       Store,
-      Store.of({
-        createVideo: call("createVideo"),
-        getVideo: call("getVideo"),
-        findByStreamUid: call("findByStreamUid"),
-        saveVideo: call("saveVideo"),
-        checkAdmin: call("checkAdmin"),
-        ownerEmail: call("ownerEmail"),
-        enrichments: call("enrichments"),
-        setEnrichment: call("setEnrichment"),
-        comments: call("comments"),
-        addComment: call("addComment"),
-      } as unknown as Store["Service"]),
+      Store.of(
+        Object.fromEntries(
+          (Object.keys(methods) as Array<keyof Store["Service"]>).map((key) => [key, call(key)]),
+        ) as unknown as Store["Service"],
+      ),
     );
   };
 
@@ -245,14 +286,28 @@ export class Store extends Context.Service<
             .from(comments)
             .where(eq(comments.videoId, id))
             .orderBy(asc(comments.time), asc(comments.createdAt));
-          return yield* Effect.forEach(rows, (r) =>
-            decodeComment({ ...r, createdAt: r.createdAt.toISOString() }),
-          );
+          return yield* Effect.forEach(rows, (r) => decodeComment(commentInput(r)));
+        }, Effect.orDie),
+
+        replyTokenOf: Effect.fn("Store.replyTokenOf")(function* (commentId) {
+          const rows = yield* db
+            .select({ replyToken: comments.replyToken })
+            .from(comments)
+            .where(eq(comments.id, commentId));
+          return rows[0]?.replyToken ?? null;
+        }, Effect.orDie),
+
+        findCommentByReplyToken: Effect.fn("Store.findCommentByReplyToken")(function* (token) {
+          const rows = yield* db.select().from(comments).where(eq(comments.replyToken, token));
+          const row = rows[0];
+          return row ? yield* decodeComment(commentInput(row)) : null;
         }, Effect.orDie),
 
         addComment: Effect.fn("Store.addComment")(function* (comment) {
           const e = yield* encodeComment(comment);
-          yield* db.insert(comments).values({ ...e, createdAt: new Date(e.createdAt) });
+          const replyToken = newReplyToken();
+          yield* db.insert(comments).values({ ...e, createdAt: new Date(e.createdAt), replyToken });
+          return replyToken;
         }, Effect.orDie),
       });
     }),

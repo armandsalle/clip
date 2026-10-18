@@ -1,14 +1,23 @@
 import { Context, DateTime, Duration, Effect, Layer, Option, Ref, Schedule, Schema } from "effect";
 import {
+  Comment,
+  CommentId,
   decide,
   EnrichmentStatus,
+  VideoId,
   expiresAt,
   type EnrichmentKind,
-  type VideoId,
 } from "@clip/domain";
 import { TranscriptSegment } from "@clip/contract";
 import { AiError, Summarizer, Transcriber } from "./Ai.ts";
-import { Live, StreamVideos } from "./Platform.ts";
+import { Live, Mailer, StreamVideos, type CommentNotification } from "./Platform.ts";
+import {
+  commentsEmail,
+  extractReplyText,
+  readyEmail,
+  replyAddress,
+  tokenFromAddress,
+} from "./emails.ts";
 import { Store } from "./Store.ts";
 
 // Logique du pipeline en Effect pur (testable sans Workflow). Le Workflow
@@ -346,4 +355,121 @@ export const expire = Effect.fn("pipeline.expire")(function* (videoId: VideoId) 
   yield* store.saveVideo(next.success);
   yield* StreamVideos.use((s) => s.remove(video.streamUid));
   yield* Live.use((l) => l.publish(videoId, { _tag: "VideoChanged", video: next.success }));
+});
+
+// Emails ------------------------------------------------------------------------------------
+
+const SummaryResult = Schema.Struct({
+  summary: Schema.String,
+  chapters: Schema.Array(Schema.Struct({ time: Schema.Finite, title: Schema.String })),
+});
+
+/** « Votre vidéo est prête », au propriétaire s'il a laissé son email. */
+export const notify = (videoId: VideoId) =>
+  Effect.gen(function* () {
+    const store = yield* Store;
+    const to = yield* store.ownerEmail(videoId).pipe(Effect.orDie);
+    if (to === null) return yield* disabled(videoId, "notify");
+    return yield* enrichment(
+      videoId,
+      "notify",
+      Effect.gen(function* () {
+        const mailer = yield* Mailer;
+        const video = yield* store.getVideo(videoId);
+        const records = yield* store.enrichments(videoId);
+        const summary = Option.getOrNull(
+          Schema.decodeUnknownOption(SummaryResult)(
+            records.find((r) => r.kind === "summary")?.result,
+          ),
+        );
+        const email = readyEmail(
+          mailer.domain,
+          video,
+          summary?.summary ?? null,
+          summary?.chapters ?? [],
+        );
+        yield* mailer.send({ to, ...email });
+        return { to };
+      }),
+    );
+  });
+
+/**
+ * Consommateur de la Queue : un email par vidéo, listant ses nouveaux commentaires.
+ * Renvoie les vidéos notifiées (pour le flux des Coulisses).
+ */
+export const notifyComments = Effect.fn("pipeline.notifyComments")(function* (
+  notifications: ReadonlyArray<CommentNotification>,
+) {
+  const store = yield* Store;
+  const mailer = yield* Mailer;
+  const byVideo = new Map<string, Set<string>>();
+  for (const n of notifications) {
+    byVideo.set(n.videoId, (byVideo.get(n.videoId) ?? new Set()).add(n.commentId));
+  }
+  for (const [rawId, commentIds] of byVideo) {
+    const videoId = VideoId.make(rawId);
+    const to = yield* store.ownerEmail(videoId).pipe(Effect.orElseSucceed(() => null));
+    if (to === null) continue;
+    const video = yield* store.getVideo(videoId).pipe(Effect.orDie);
+    const all = yield* store.comments(videoId);
+    const fresh = all.filter((c) => commentIds.has(c.id));
+    if (fresh.length === 0) continue;
+    const items = yield* Effect.forEach(fresh, (comment) =>
+      Effect.map(store.replyTokenOf(comment.id), (replyToken) => ({ comment, replyToken })),
+    );
+    const last = items.at(-1)?.replyToken;
+    yield* mailer.send({
+      to,
+      ...commentsEmail(mailer.domain, video, items),
+      ...(last ? { replyTo: replyAddress(mailer.domain, last) } : {}),
+    });
+    yield* publishStep(
+      videoId,
+      "mail.comment",
+      EnrichmentStatus.cases.Done.make({ durationMs: 0 }),
+    );
+  }
+});
+
+export class ReplyRejected extends Schema.TaggedError<
+  ReplyRejected,
+  { readonly brand: unique symbol }
+>()("ReplyRejected", { reason: Schema.String }) {}
+
+/** Réponse par email : publiée sous le commentaire visé, en direct. */
+export const replyByEmail = Effect.fn("pipeline.replyByEmail")(function* (input: {
+  readonly to: string;
+  readonly from: string;
+  readonly text: string;
+}) {
+  const store = yield* Store;
+  const token = tokenFromAddress(input.to);
+  if (token === null) return yield* new ReplyRejected({ reason: "adresse inconnue" });
+  const parent = yield* store.findCommentByReplyToken(token);
+  if (parent === null) return yield* new ReplyRejected({ reason: "adresse inconnue" });
+  const owner = yield* store.ownerEmail(parent.videoId).pipe(Effect.orElseSucceed(() => null));
+  if (owner === null || owner.trim().toLowerCase() !== input.from.trim().toLowerCase()) {
+    return yield* new ReplyRejected({ reason: "expéditeur non autorisé" });
+  }
+  const body = extractReplyText(input.text);
+  if (body === null) return yield* new ReplyRejected({ reason: "réponse vide" });
+  const reply = new Comment({
+    id: CommentId.make(crypto.randomUUID()),
+    videoId: parent.videoId,
+    parentId: parent.parentId ?? parent.id,
+    author: "Propriétaire",
+    body,
+    time: parent.time,
+    via: "email",
+    createdAt: yield* DateTime.now,
+  });
+  yield* store.addComment(reply);
+  yield* Live.use((l) => l.publish(parent.videoId, { _tag: "CommentAdded", comment: reply }));
+  yield* publishStep(
+    parent.videoId,
+    "mail.reply",
+    EnrichmentStatus.cases.Done.make({ durationMs: 0 }),
+  );
+  return reply;
 });

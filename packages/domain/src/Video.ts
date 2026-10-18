@@ -81,6 +81,8 @@ export const EnrichmentKind = Schema.Literals([
   "storyboard",
   "shareCard",
   "index",
+  /** Email « votre vidéo est prête » au propriétaire. */
+  "notify",
 ]);
 export type EnrichmentKind = typeof EnrichmentKind.Type;
 

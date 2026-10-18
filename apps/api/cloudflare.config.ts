@@ -119,7 +119,13 @@ export default defineConfig(({ mode }) => {
         }),
       },
       triggers: [
-        triggers.queue({ name: `${name}-notifications`, maxBatchSize: 10, maxRetries: 5 }),
+        triggers.queue({
+          name: `${name}-notifications`,
+          maxBatchSize: 50,
+          // Regroupe les commentaires d'une rafale dans un même lot (donc un email).
+          maxBatchTimeout: 5,
+          maxRetries: 5,
+        }),
         // Avec le sous-adressage d'Email Routing, reply+<jeton>@… arrive ici.
         ...(emailRouting ? [triggers.email({ addresses: [`reply@${domain}`] })] : []),
       ],

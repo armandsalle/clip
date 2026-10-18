@@ -74,6 +74,9 @@ export const Home = () => {
   const [over, setOver] = useState(false);
   const [email, setEmail] = useState("");
   const [emailSaved, setEmailSaved] = useState(false);
+  // Valeur courante du champ, lue à la fin de l'upload (la closure de `start` est figée).
+  const emailRef = useRef({ value: "", saved: false });
+  emailRef.current = { value: email, saved: emailSaved };
   const input = useRef<HTMLInputElement>(null);
 
   const start = async (file: File) => {
@@ -117,6 +120,25 @@ export const Home = () => {
             : s,
         ),
       );
+      // Email saisi mais pas encore validé : on l'enregistre avant de quitter la page.
+      const pending = emailRef.current;
+      if (!pending.saved && pending.value.includes("@")) {
+        const ok = await call((api) =>
+          api.videos.update({
+            params: { id: videoId },
+            headers: { "x-clip-admin": created.adminKey },
+            payload: { email: pending.value.trim() },
+          }),
+        ).then(
+          () => true,
+          () => false,
+        );
+        try {
+          if (ok) localStorage.setItem(`clip:email:${videoId}`, pending.value.trim());
+        } catch {
+          // stockage indisponible
+        }
+      }
       navigate(`/v/${videoId}`);
     } catch (error) {
       setState({
@@ -128,13 +150,22 @@ export const Home = () => {
 
   const saveEmail = async () => {
     if (state.step !== "uploading" || !email.includes("@")) return;
-    await call((api) =>
+    const ok = await call((api) =>
       api.videos.update({
         params: { id: state.videoId },
         headers: { "x-clip-admin": state.adminKey },
         payload: { email },
       }),
-    ).catch(() => undefined);
+    ).then(
+      () => true,
+      () => false,
+    );
+    if (!ok) return;
+    try {
+      localStorage.setItem(`clip:email:${state.videoId}`, email);
+    } catch {
+      // stockage indisponible
+    }
     setEmailSaved(true);
   };
 

@@ -1,4 +1,4 @@
-import { assert, layer } from "@effect/vitest";
+import { assert, describe, it, layer } from "@effect/vitest";
 import { DateTime, Effect, Layer } from "effect";
 import {
   Comment,
@@ -91,5 +91,30 @@ layer(Store.layerDrizzle.pipe(Layer.provide(DbPglite)))("Store (Drizzle + PGlite
         [10, 90],
       );
     }),
+  );
+});
+
+describe("Store.layerPerCall", () => {
+  it.effect("relaie toutes les méthodes du service (aucune oubliée)", () =>
+    Effect.gen(function* () {
+      const store = yield* Store;
+      for (const key of [
+        "createVideo",
+        "getVideo",
+        "findByStreamUid",
+        "saveVideo",
+        "checkAdmin",
+        "ownerEmail",
+        "setOwnerEmail",
+        "enrichments",
+        "setEnrichment",
+        "comments",
+        "addComment",
+        "findCommentByReplyToken",
+        "replyTokenOf",
+      ] as const) {
+        assert.strictEqual(typeof store[key], "function", key);
+      }
+    }).pipe(Effect.provide(Store.layerPerCall(DbPglite))),
   );
 });
