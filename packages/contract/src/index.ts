@@ -71,11 +71,27 @@ export const GalleryQuery = {
   q: Schema.optionalKey(Schema.String),
 };
 
+/**
+ * Adresse email : vérification volontairement simple (le vrai test, c'est l'email
+ * reçu). Les messages servent tels quels au formulaire de dépôt.
+ */
+export const Email = Schema.String.check(
+  Schema.isMinLength(1, { message: "Votre email est obligatoire." }),
+  Schema.isMaxLength(254, { message: "Cette adresse est trop longue." }),
+  Schema.isPattern(/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/, {
+    message: "Cette adresse semble incomplète.",
+  }),
+);
+
+/** Taille maximale d'un dépôt (limite de la démo, vérifiée avant tout envoi). */
+export const MAX_UPLOAD_BYTES = 2 * 1024 ** 3;
+
 export const CreateVideo = Schema.Struct({
-  email: Schema.NullOr(Schema.String),
+  /** Obligatoire, comme chez Smash : lien d'admin, commentaires, réponses par email. */
+  email: Email,
   expiry: Expiry,
   /** Taille du fichier en octets : l'upload tus de Stream l'exige à la création. */
-  size: Schema.Int.check(Schema.isGreaterThan(0)),
+  size: Schema.Int.check(Schema.isGreaterThan(0), Schema.isLessThanOrEqualTo(MAX_UPLOAD_BYTES)),
 });
 
 /** `tus` : Cloudflare Stream, par morceaux et reprenable ; `put` : faux Stream local. */

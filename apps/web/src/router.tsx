@@ -9,8 +9,8 @@ import type { QueryClient } from "@tanstack/react-query";
 import { Option, Schema } from "effect";
 import { VideoId } from "@clip/domain";
 import { Coulisses } from "./Coulisses.tsx";
-import { Home } from "./Home.tsx";
 import { Gallery } from "./routes/Gallery.tsx";
+import { Upload } from "./routes/Upload.tsx";
 import { VideoPage } from "./VideoPage.tsx";
 
 // Routes déclarées en code, typées de bout en bout. Les paramètres sont validés par
@@ -53,11 +53,11 @@ const galleryRoute = createRoute({
   },
 });
 
-/** Dépôt : écran v1 en attendant le dépôt façon Smash (lot 6c). */
+/** Dépôt façon Smash : Fichier → Email (obligatoire) → Envoi. */
 const uploadRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: "/upload",
-  component: Home,
+  component: Upload,
 });
 
 const videoRoute = createRoute({

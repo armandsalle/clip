@@ -1,9 +1,9 @@
 import { assert, layer } from "@effect/vitest";
-import { Effect, Layer } from "effect";
+import { Effect, Exit, Layer, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { HttpServer } from "effect/http";
 import { HttpApiTest } from "effect/http-api";
-import { ClipApi } from "@clip/contract";
+import { ClipApi, CreateVideo } from "@clip/contract";
 import type { VideoId } from "@clip/domain";
 import { queued, TestPlatform } from "@clip/testing";
 import { VideosHandlers } from "../src/http.ts";
@@ -28,7 +28,7 @@ layer(
     Effect.gen(function* () {
       const client = yield* makeClient;
       const { video } = yield* client.videos.create({
-        payload: { email: null, expiry: "never", size: 1_000_000 },
+        payload: { email: "owner@example.com", expiry: "never", size: 1_000_000 },
       });
       yield* encoded(video.id);
       yield* client.videos.comment({
@@ -54,7 +54,7 @@ layer(
     Effect.gen(function* () {
       const client = yield* makeClient;
       const created = yield* client.videos.create({
-        payload: { email: null, expiry: "7d", size: 1_000_000 },
+        payload: { email: "owner@example.com", expiry: "7d", size: 1_000_000 },
       });
       yield* encoded(created.video.id);
       const denied = yield* client.videos
@@ -95,7 +95,7 @@ layer(
     Effect.gen(function* () {
       const client = yield* makeClient;
       const created = yield* client.videos.create({
-        payload: { email: null, expiry: "7d", size: 1_000_000 },
+        payload: { email: "owner@example.com", expiry: "7d", size: 1_000_000 },
       });
       const headers = { "x-clip-admin": created.adminKey };
       const removed = yield* client.videos.remove({ params: { id: created.video.id }, headers });
@@ -112,11 +112,11 @@ layer(
       // Les autres tests créent leurs vidéos à l'instant 0 de l'horloge de test.
       yield* TestClock.adjust("1 hour");
       const a = yield* client.videos.create({
-        payload: { email: null, expiry: "7d", size: 1_000_000 },
+        payload: { email: "owner@example.com", expiry: "7d", size: 1_000_000 },
       });
       yield* TestClock.adjust("1 second");
       const b = yield* client.videos.create({
-        payload: { email: null, expiry: "7d", size: 1_000_000 },
+        payload: { email: "owner@example.com", expiry: "7d", size: 1_000_000 },
       });
       yield* client.videos.update({
         params: { id: b.video.id },
@@ -141,6 +141,22 @@ layer(
       });
       const after = yield* client.videos.list({ query: {} });
       assert.isFalse(after.items.some((i) => i.video.id === a.video.id));
+    }),
+  );
+
+  it.effect("le dépôt exige une adresse email valide", () =>
+    Effect.gen(function* () {
+      const client = yield* makeClient;
+      for (const email of ["", "lea@studio", "pas une adresse"]) {
+        const error = yield* client.videos
+          .create({ payload: { email, expiry: "7d", size: 1_000_000 } })
+          .pipe(Effect.flip);
+        // Refusée dès l'encodage côté client ; l'API applique le même Schema en entrée.
+        assert.include(["SchemaError", "HttpApiDecodeError"], error._tag, `« ${email} » accepté`);
+        assert.isTrue(
+          Exit.isFailure(Schema.decodeExit(CreateVideo)({ email, expiry: "7d", size: 1 })),
+        );
+      }
     }),
   );
 });

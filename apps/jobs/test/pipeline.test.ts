@@ -32,7 +32,7 @@ layer(ApiTest.pipe(Layer.provideMerge(TestPlatform), Layer.provideMerge(HttpServ
       Effect.gen(function* () {
         const client = yield* makeClient;
         const created = yield* client.videos.create({
-          payload: { email: null, expiry: "7d", size: 1_000_000 },
+          payload: { email: "owner@example.com", expiry: "7d", size: 1_000_000 },
         });
         assert.strictEqual(created.video.status._tag, "Uploading");
 
@@ -63,7 +63,7 @@ layer(ApiTest.pipe(Layer.provideMerge(TestPlatform), Layer.provideMerge(HttpServ
       Effect.gen(function* () {
         const client = yield* makeClient;
         const { video } = yield* client.videos.create({
-          payload: { email: null, expiry: "never", size: 1_000_000 },
+          payload: { email: "owner@example.com", expiry: "never", size: 1_000_000 },
         });
         yield* TestClock.adjust("42 seconds");
         yield* Pipeline.checkEncoding(video.id);
@@ -138,11 +138,16 @@ layer(ApiTest.pipe(Layer.provideMerge(TestPlatform), Layer.provideMerge(HttpServ
       }),
     );
 
-    it.effect("pas d'email « vidéo prête » sans adresse", () =>
+    it.effect("pas d'email « vidéo prête » si le propriétaire a retiré son adresse", () =>
       Effect.gen(function* () {
         const client = yield* makeClient;
-        const { video } = yield* client.videos.create({
-          payload: { email: null, expiry: "7d", size: 1_000_000 },
+        const { video, adminKey } = yield* client.videos.create({
+          payload: { email: "owner@example.com", expiry: "7d", size: 1_000_000 },
+        });
+        yield* client.videos.update({
+          params: { id: video.id },
+          headers: { "x-clip-admin": adminKey },
+          payload: { email: null },
         });
         yield* Pipeline.checkEncoding(video.id);
         yield* Pipeline.notify(video.id);
@@ -155,10 +160,10 @@ layer(ApiTest.pipe(Layer.provideMerge(TestPlatform), Layer.provideMerge(HttpServ
       Effect.gen(function* () {
         const client = yield* makeClient;
         const short = yield* client.videos.create({
-          payload: { email: null, expiry: "1d", size: 1_000_000 },
+          payload: { email: "owner@example.com", expiry: "1d", size: 1_000_000 },
         });
         const kept = yield* client.videos.create({
-          payload: { email: null, expiry: "never", size: 1_000_000 },
+          payload: { email: "owner@example.com", expiry: "never", size: 1_000_000 },
         });
         yield* Pipeline.checkEncoding(short.video.id);
         assert.strictEqual(yield* Pipeline.expireDue(), 0);
@@ -175,7 +180,7 @@ layer(ApiTest.pipe(Layer.provideMerge(TestPlatform), Layer.provideMerge(HttpServ
       Effect.gen(function* () {
         const client = yield* makeClient;
         const { video } = yield* client.videos.create({
-          payload: { email: null, expiry: "never", size: 1_000_000 },
+          payload: { email: "owner@example.com", expiry: "never", size: 1_000_000 },
         });
         yield* Pipeline.checkEncoding(video.id);
         yield* withClock(Pipeline.thumbnail(video.id));
