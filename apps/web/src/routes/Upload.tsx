@@ -250,6 +250,11 @@ export const Upload = () => {
           api.videos.create({ payload: { email, expiry: "7d", size: file.size } }),
         );
         rememberEmail(email);
+        try {
+          localStorage.setItem(`clip:email:${created.video.id}`, email);
+        } catch {
+          // facultatif : les réglages afficheront l'adresse si elle est mémorisée
+        }
         send(file, duration, {
           videoId: created.video.id,
           adminKey: created.adminKey,

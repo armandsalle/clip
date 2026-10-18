@@ -11,7 +11,7 @@ import { VideoId } from "@clip/domain";
 import { Coulisses } from "./Coulisses.tsx";
 import { Gallery } from "./routes/Gallery.tsx";
 import { Upload } from "./routes/Upload.tsx";
-import { VideoPage } from "./VideoPage.tsx";
+import { VideoPage } from "./routes/video/VideoPage.tsx";
 
 // Routes déclarées en code, typées de bout en bout. Les paramètres sont validés par
 // les Schemas du domaine : un identifiant invalide donne la page « introuvable ».

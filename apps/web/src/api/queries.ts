@@ -1,5 +1,6 @@
 import { infiniteQueryOptions, queryOptions } from "@tanstack/react-query";
 import type { VideoId } from "@clip/domain";
+import type { NewComment, UpdateVideo } from "@clip/contract";
 import { call } from "./client.ts";
 
 // Requêtes TanStack Query : clés et fonctions déclarées une fois. Le temps réel
@@ -36,3 +37,15 @@ export const galleryQuery = (q: string) =>
       ),
     getNextPageParam: (page) => page.nextCursor,
   });
+
+/** Mise à jour d'une vidéo par son propriétaire (secret d'admin). */
+export const updateVideo = (id: VideoId, adminKey: string, payload: typeof UpdateVideo.Type) =>
+  call((api) =>
+    api.videos.update({ params: { id }, headers: { "x-clip-admin": adminKey }, payload }),
+  );
+
+export const removeVideo = (id: VideoId, adminKey: string) =>
+  call((api) => api.videos.remove({ params: { id }, headers: { "x-clip-admin": adminKey } }));
+
+export const postComment = (id: VideoId, payload: typeof NewComment.Type) =>
+  call((api) => api.videos.comment({ params: { id }, payload }));

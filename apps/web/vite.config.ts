@@ -30,6 +30,17 @@ const auxiliary = (
 // auxiliaires : service bindings, Durable Objects, Workflow et Queue entre Workers
 // fonctionnent comme en ligne. Chaque Worker se déploie ensuite séparément.
 export default defineConfig(({ command, mode }) => ({
+  // Dépendances pré-optimisées d'emblée : pas de ré-optimisation (et de double React)
+  // en cours de session quand une page charge une nouvelle bibliothèque.
+  optimizeDeps: {
+    include: [
+      "@tanstack/react-form",
+      "@tanstack/react-query",
+      "@tanstack/react-router",
+      "hls.js",
+      "tus-js-client",
+    ],
+  },
   plugins: process.env.VITEST
     ? []
     : [
