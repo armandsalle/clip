@@ -62,7 +62,8 @@ export default defineConfig(({ mode }) => {
             connectionString: databaseUrl ?? "postgres://postgres:postgres@localhost:5432/clip",
           },
         }),
-        CACHE: bindings.kv(),
+        // Namespace créé au premier déploiement (clip-api-cache).
+        CACHE: bindings.kv(mode === "production" ? { id: "476d126f815c41e09b39305d8cd6aaa5" } : {}),
         NOTIFICATIONS: bindings.queue({ name: `${name}-notifications` }),
         // IA
         AI: remote && bindings.ai({ dev: { remote: true } }),

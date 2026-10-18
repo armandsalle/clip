@@ -10,7 +10,7 @@ export default defineConfig({
   run: {
     tasks: {
       dev: { command: "cf dev", cache: false },
-      deploy: { command: "cf deploy", cache: false },
+      deploy: { command: "cf deploy --mode production", cache: false },
       // cloudflare.config.ts lit CLIP_* et DATABASE_URL : ils font partie de l'empreinte.
       build: {
         command: "cf build",

@@ -2,7 +2,7 @@
 
 Clip est une démo « à la Grain » 100 % Cloudflare : on dépose une vidéo, sans compte, et elle devient un stream avec transcription, résumé, chapitres, miniatures, commentaires horodatés en direct et questions-réponses. Le produit (flows, UX, écrans) est décrit dans [PRODUCT.md](PRODUCT.md). Ce document décrit la tech.
 
-État au 2026-10-18 : le parcours complet tourne en local (`cf dev`) contre la vraie base Neon (via l'émulation locale d'Hyperdrive), avec un faux Stream et une IA factice. Rien n'est déployé ; Stream et Workers AI n'ont pas encore été testés pour de vrai.
+État au 2026-10-18 : déployé sur https://clip.bonjour.pizza (Worker `clip-api`). Parcours complet vérifié en ligne : upload Stream, transcription Whisper, titre/résumé/chapitres Llama 3.3, Neon via Hyperdrive (environ 40 s). La règle Email Routing n'est pas encore active.
 
 ## Stack et versions
 
@@ -148,6 +148,11 @@ CLIP_CONTAINERS=0 CLIP_CHAOS=0.5 vp run dev   # mode chaos : 50 % d'échecs, ret
 | 7   | Typage SQL à la compilation                              | **OK.** Vérifié : colonne inexistante, valeur d'enum invalide et mauvais type de retour sont refusés par `tsc`. Le JSONB `status_details` est typé avec l'encodage du Schema du domaine, et l'agrégat relu est revalidé par ce Schema.                                                                                                                                                                                                                                   |
 
 ## Pièges relevés
+
+- Hyperdrive met en cache les `SELECT` par défaut (60 s) en production, pas en local : le pipeline relisait une vidéo périmée (`Uploading` juste après `Ready`). Cache désactivé sur `clip-neon` (`cf hyperdrive update … --caching-disabled`).
+- `env.DB.connectionString` (Hyperdrive) ne se lit pas au chargement du module (erreur 10021 au déploiement, invisible en `cf dev`) : la Layer Postgres est construite à chaque appel.
+- Un déploiement qui échoue après le provisionnement laisse les ressources créées mais inconnues de `cf` : le KV est épinglé par id en production.
+- La tâche `deploy` lance `cf deploy --mode production` (domaine personnalisé et bindings distants ne sont actifs qu'en production) ; `CLIP_CONTAINERS=0` tant que Docker n'est pas lancé.
 
 - Workers + Postgres : une connexion TCP ouverte pendant une requête ne peut pas servir à une autre ; un pool construit au niveau du module fait bloquer la requête suivante (« Worker's code had hung »). `Store.layerPerCall` construit une base Drizzle par appel ; Hyperdrive fait le pooling côté Cloudflare.
 - `neon init` installe ses plugins d'agents avec `npm` dans le projet, ce qui échoue (`devEngines` exige pnpm) et interrompt tout : relancer avec `--no-agent-setup --package-manager pnpm`, puis ajouter `@neon/config` et `@neon/env` à la racine avec `-w`.

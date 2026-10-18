@@ -28,7 +28,13 @@ const StoreLive =
   env.STORE === "postgres"
     ? Store.layerPerCall(
         Db.layerPg.pipe(
-          Layer.provide(PgClient.layer({ url: Redacted.make(env.DB.connectionString) })),
+          // `env.DB.connectionString` ne se lit que dans un handler (Hyperdrive la génère
+          // à la demande) : la Layer est donc construite à chaque appel, pas au chargement.
+          Layer.provide(
+            Layer.unwrap(
+              Effect.sync(() => PgClient.layer({ url: Redacted.make(env.DB.connectionString) })),
+            ),
+          ),
         ),
       )
     : Store.layerMemory;
