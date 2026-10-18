@@ -138,7 +138,11 @@ const Transcript = ({
   onSeek: (t: number) => void;
 }) => {
   const current = useRef<HTMLButtonElement>(null);
-  useEffect(() => current.current?.scrollIntoView({ block: "nearest" }), [time]);
+  useEffect(() => {
+    // Bloc explicite : scrollIntoView renvoie une Promise dans les navigateurs récents,
+    // et React prendrait toute valeur renvoyée pour une fonction de nettoyage.
+    void current.current?.scrollIntoView({ block: "nearest" });
+  }, [time]);
   if (status?._tag === "Failed" || status?._tag === "Disabled")
     return <Unavailable status={status} />;
   if (view.transcript.length === 0)
