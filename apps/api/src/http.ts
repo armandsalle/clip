@@ -115,7 +115,7 @@ export const VideosHandlers = HttpApiBuilder.group(
     return handlers.handleAll({
       create: ({ payload }) =>
         Effect.gen(function* () {
-          const upload = yield* stream.createUpload(MAX_DURATION_SECONDS);
+          const upload = yield* stream.createUpload(MAX_DURATION_SECONDS, payload.size);
           const admin = yield* keys.generate;
           const video = new Video({
             id: VideoId.make(crypto.randomUUID()),
@@ -128,7 +128,12 @@ export const VideosHandlers = HttpApiBuilder.group(
           });
           yield* store.createVideo(video, admin.hash, payload.email);
           yield* pipeline.start(video.id);
-          return { video, uploadUrl: upload.uploadUrl, adminKey: admin.key };
+          return {
+            video,
+            uploadUrl: upload.uploadUrl,
+            uploadProtocol: upload.protocol,
+            adminKey: admin.key,
+          };
         }),
 
       get: ({ params }) => view(params.id),

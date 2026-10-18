@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, Schema } from "effect";
-import { Base64Url, Hex } from "effect/encoding";
+import { Base64, Base64Url, Hex } from "effect/encoding";
 import { StreamUid, type VideoId } from "@clip/domain";
 import { LiveEvent } from "@clip/contract";
 
@@ -44,7 +44,10 @@ export interface StreamDetails {
 export class StreamVideos extends Context.Service<
   StreamVideos,
   {
-    createUpload(maxDurationSeconds: number): Effect.Effect<{ uid: StreamUid; uploadUrl: string }>;
+    createUpload(
+      maxDurationSeconds: number,
+      size: number,
+    ): Effect.Effect<{ uid: StreamUid; uploadUrl: string; protocol: "tus" | "put" }>;
     details(uid: StreamUid): Effect.Effect<StreamDetails>;
     setThumbnail(uid: StreamUid, pct: number): Effect.Effect<void>;
     /** Piste audio (pour la transcription) ; `null` tant que le téléchargement n'est pas prêt. */
@@ -52,15 +55,36 @@ export class StreamVideos extends Context.Service<
     remove(uid: StreamUid): Effect.Effect<void>;
   }
 >()("@clip/api/StreamVideos") {
-  static readonly layer = (binding: StreamBinding) =>
+  static readonly layer = (
+    binding: StreamBinding,
+    rest: { accountId: string; token: () => Promise<string> },
+  ) =>
     Layer.succeed(
       StreamVideos,
       StreamVideos.of({
-        createUpload: (maxDurationSeconds) =>
-          Effect.promise(() => binding.createDirectUpload({ maxDurationSeconds })).pipe(
-            Effect.map((u) => ({ uid: StreamUid.make(u.id), uploadUrl: u.uploadURL })),
-            Effect.withSpan("stream.createUpload"),
-          ),
+        // Le binding ne crée que des uploads « POST » limités à 200 Mo : l'upload tus
+        // (gros fichiers, reprenable) passe par l'API REST de Stream avec un token.
+        createUpload: (maxDurationSeconds, size) =>
+          Effect.tryPromise(async () => {
+            const response = await fetch(
+              `https://api.cloudflare.com/client/v4/accounts/${rest.accountId}/stream?direct_user=true`,
+              {
+                method: "POST",
+                headers: {
+                  authorization: `Bearer ${await rest.token()}`,
+                  "tus-resumable": "1.0.0",
+                  "upload-length": String(size),
+                  "upload-metadata": `maxDurationSeconds ${Base64.encode(String(maxDurationSeconds))}`,
+                },
+              },
+            );
+            const location = response.headers.get("location");
+            const uid = response.headers.get("stream-media-id");
+            if (!response.ok || !location || !uid) {
+              throw new Error(`Stream tus ${response.status}: ${await response.text()}`);
+            }
+            return { uid: StreamUid.make(uid), uploadUrl: location, protocol: "tus" as const };
+          }).pipe(Effect.orDie, Effect.withSpan("stream.createUpload")),
         details: (uid) =>
           Effect.promise(() => binding.video(uid).details()).pipe(
             Effect.map((v) => ({
@@ -102,7 +126,7 @@ export class StreamVideos extends Context.Service<
         createUpload: () =>
           Effect.sync(() => {
             const uid = StreamUid.make(`dev-${crypto.randomUUID()}`);
-            return { uid, uploadUrl: `/dev/stream/${uid}` };
+            return { uid, uploadUrl: `/dev/stream/${uid}`, protocol: "put" as const };
           }),
         details: (uid) =>
           Effect.promise(() => bucket.head(`dev-stream/${uid}`)).pipe(

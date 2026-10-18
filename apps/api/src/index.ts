@@ -40,7 +40,13 @@ const StoreLive =
     : Store.layerMemory;
 
 const StreamLive =
-  remote && env.STREAM ? StreamVideos.layer(env.STREAM) : StreamVideos.layerFake(env.MEDIA);
+  remote && env.STREAM && env.STREAM_API_TOKEN
+    ? StreamVideos.layer(env.STREAM, {
+        accountId: env.ACCOUNT_ID,
+        // Secrets Store : lu à la demande, dans le handler.
+        token: () => env.STREAM_API_TOKEN!.get(),
+      })
+    : StreamVideos.layerFake(env.MEDIA);
 
 const AiLive =
   remote && env.AI

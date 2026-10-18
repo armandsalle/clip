@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import * as tus from "tus-js-client";
 import type { VideoId } from "@clip/domain";
 import { call } from "./api.ts";
 import { Logo, UploadIcon } from "./ui.tsx";
@@ -31,32 +32,39 @@ const readDuration = (file: File): Promise<number | null> =>
   });
 
 /**
- * Upload direct : vers Cloudflare Stream (formulaire multipart sur l'URL signée)
- * ou vers le faux Stream du Worker en local (PUT brut), avec progression.
+ * Upload direct, avec progression :
+ * - `tus` : vers Cloudflare Stream, par morceaux de 50 Mo, reprenable (obligatoire
+ *   au-delà de 200 Mo). L'upload a été créé par le Worker : on y envoie les octets.
+ * - `put` : vers le faux Stream du Worker en local (PUT brut).
  */
 const upload = (
   url: string,
+  protocol: "tus" | "put",
   file: File,
   duration: number | null,
   onProgress: (loaded: number) => void,
 ): Promise<void> =>
   new Promise((resolve, reject) => {
+    if (protocol === "tus") {
+      new tus.Upload(file, {
+        uploadUrl: url,
+        chunkSize: 50 * 1024 * 1024,
+        retryDelays: [0, 1000, 3000, 5000],
+        onProgress: (sent) => onProgress(sent),
+        onSuccess: () => resolve(),
+        onError: () => reject(new Error("L'envoi a été interrompu. Vérifiez votre connexion.")),
+      }).start();
+      return;
+    }
     const xhr = new XMLHttpRequest();
-    const local = url.startsWith("/");
-    xhr.open(local ? "PUT" : "POST", url);
+    xhr.open("PUT", url);
     xhr.upload.onprogress = (e) => onProgress(e.loaded);
     xhr.onload = () =>
       xhr.status < 300 ? resolve() : reject(new Error(`L'envoi a échoué (${xhr.status}).`));
     xhr.onerror = () => reject(new Error("L'envoi a été interrompu. Vérifiez votre connexion."));
-    if (local) {
-      xhr.setRequestHeader("content-type", file.type || "video/mp4");
-      if (duration !== null) xhr.setRequestHeader("x-clip-duration", String(Math.round(duration)));
-      xhr.send(file);
-    } else {
-      const form = new FormData();
-      form.append("file", file);
-      xhr.send(form);
-    }
+    xhr.setRequestHeader("content-type", file.type || "video/mp4");
+    if (duration !== null) xhr.setRequestHeader("x-clip-duration", String(Math.round(duration)));
+    xhr.send(file);
   });
 
 const MAX_BYTES = 2e9;
@@ -82,7 +90,9 @@ export const Home = () => {
     }
     try {
       const [created, duration] = await Promise.all([
-        call((api) => api.videos.create({ payload: { email: null, expiry: "7d" } })),
+        call((api) =>
+          api.videos.create({ payload: { email: null, expiry: "7d", size: file.size } }),
+        ),
         readDuration(file),
       ]);
       const videoId = created.video.id;
@@ -96,7 +106,7 @@ export const Home = () => {
         videoId,
         adminKey: created.adminKey,
       });
-      await upload(created.uploadUrl, file, duration, (loaded) =>
+      await upload(created.uploadUrl, created.uploadProtocol, file, duration, (loaded) =>
         setState((s) =>
           s.step === "uploading"
             ? {

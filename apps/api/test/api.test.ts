@@ -29,7 +29,9 @@ layer(
   it.effect("upload → encodage → enrichissements → vue complète", () =>
     Effect.gen(function* () {
       const client = yield* makeClient;
-      const created = yield* client.videos.create({ payload: { email: null, expiry: "7d" } });
+      const created = yield* client.videos.create({
+        payload: { email: null, expiry: "7d", size: 1_000_000 },
+      });
       assert.strictEqual(created.video.status._tag, "Uploading");
 
       const id = created.video.id;
@@ -52,7 +54,9 @@ layer(
   it.effect("commentaires horodatés, bornés par la durée", () =>
     Effect.gen(function* () {
       const client = yield* makeClient;
-      const { video } = yield* client.videos.create({ payload: { email: null, expiry: "never" } });
+      const { video } = yield* client.videos.create({
+        payload: { email: null, expiry: "never", size: 1_000_000 },
+      });
       yield* Pipeline.checkEncoding(video.id);
       yield* client.videos.comment({
         params: { id: video.id },
@@ -76,7 +80,9 @@ layer(
   it.effect("seul le secret d'admin permet de modifier", () =>
     Effect.gen(function* () {
       const client = yield* makeClient;
-      const created = yield* client.videos.create({ payload: { email: null, expiry: "7d" } });
+      const created = yield* client.videos.create({
+        payload: { email: null, expiry: "7d", size: 1_000_000 },
+      });
       yield* Pipeline.checkEncoding(created.video.id);
       const denied = yield* client.videos
         .update({

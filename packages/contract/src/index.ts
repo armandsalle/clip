@@ -48,12 +48,18 @@ export class VideoView extends Schema.Class<VideoView, { readonly brand: unique 
 export const CreateVideo = Schema.Struct({
   email: Schema.NullOr(Schema.String),
   expiry: Expiry,
+  /** Taille du fichier en octets : l'upload tus de Stream l'exige à la création. */
+  size: Schema.Int.check(Schema.isGreaterThan(0)),
 });
+
+/** `tus` : Cloudflare Stream, par morceaux et reprenable ; `put` : faux Stream local. */
+export const UploadProtocol = Schema.Literals(["tus", "put"]);
 
 export const VideoCreated = Schema.Struct({
   video: Video,
   /** URL d'upload direct (Cloudflare Stream, ou faux Stream en local). */
   uploadUrl: Schema.String,
+  uploadProtocol: UploadProtocol,
   /** Secret d'admin, montré une seule fois. */
   adminKey: Schema.String,
 });

@@ -65,26 +65,26 @@ Chaque étape publie ses états (Running avec le numéro de tentative, Done avec
 
 ## Primitives Cloudflare
 
-| Besoin                                     | Primitive                                                                                                            | État                                                  |
-| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
-| API                                        | Worker + Effect `HttpApi` (`HttpRouter.toWebHandler`)                                                                | fait, testé                                           |
-| Front                                      | Static assets du même Worker (SPA, `runWorkerFirst` pour `/api`, `/dev`, `/media`), React + client dérivé du contrat | fait, vérifié dans le navigateur                      |
-| Upload, encodage, lecture HLS, miniatures  | Stream (binding `stream`)                                                                                            | code écrit ; faux Stream sur R2 en local              |
-| Pipeline durable                           | Workflows (`step.do`, `step.sleep`, `sleepUntil`)                                                                    | fait, vérifié en local                                |
-| Temps réel, présence                       | Durable Object `VideoRoom` (WebSockets hibernables)                                                                  | fait, vérifié en local                                |
-| Transcription                              | Workers AI (Whisper large v3 turbo) sur la piste audio Stream                                                        | code écrit ; factice en local                         |
-| Titre, résumé, chapitres                   | Workers AI (Llama 3.3 70B, sortie JSON)                                                                              | code écrit ; factice en local                         |
-| Stockage                                   | Neon (eu-central-1) via Hyperdrive `clip-neon` + Drizzle, une connexion par appel                                    | testé contre PGlite et contre Neon en local           |
-| Secrets d'admin                            | SHA-256 (WebCrypto), seul le hash est stocké                                                                         | fait                                                  |
-| Médias (miniatures importées, faux Stream) | R2                                                                                                                   | fait                                                  |
-| Planche de vignettes                       | Container (ffmpeg) piloté par le DO `Storyboard`                                                                     | placeholder, désactivé                                |
-| Notifications de commentaires              | Queues → Email Service, depuis `notifications@clipshare.dev`                                                         | bindings déclarés, handler vide                       |
-| Réponse aux commentaires par email         | Email Routing sur `reply+<jeton>@clipshare.dev` (sous-adressage)                                                     | handler vide                                          |
-| Questions sur la vidéo                     | AI Search sur la transcription                                                                                       | binding déclaré                                       |
-| Carte de partage, formats                  | Images                                                                                                               | binding déclaré                                       |
-| Cache des vues publiques                   | KV                                                                                                                   | binding déclaré                                       |
-| Interrupteurs IA, chaos                    | Flagship                                                                                                             | binding déclaré ; variables `CLIP_CHAOS` en attendant |
-| Traces                                     | Workers Observability                                                                                                | activée ; spans Effect pas encore exportés            |
+| Besoin                                     | Primitive                                                                                                            | État                                                                |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| API                                        | Worker + Effect `HttpApi` (`HttpRouter.toWebHandler`)                                                                | fait, testé                                                         |
+| Front                                      | Static assets du même Worker (SPA, `runWorkerFirst` pour `/api`, `/dev`, `/media`), React + client dérivé du contrat | fait, vérifié dans le navigateur                                    |
+| Upload, encodage, lecture HLS, miniatures  | Stream : upload tus direct (API REST, token dans Secrets Store) ; binding pour le reste                              | fait, vérifié en ligne jusqu'à 225 Mo ; faux Stream sur R2 en local |
+| Pipeline durable                           | Workflows (`step.do`, `step.sleep`, `sleepUntil`)                                                                    | fait, vérifié en local                                              |
+| Temps réel, présence                       | Durable Object `VideoRoom` (WebSockets hibernables)                                                                  | fait, vérifié en local                                              |
+| Transcription                              | Workers AI (Whisper large v3 turbo) sur la piste audio Stream                                                        | code écrit ; factice en local                                       |
+| Titre, résumé, chapitres                   | Workers AI (Llama 3.3 70B, sortie JSON)                                                                              | code écrit ; factice en local                                       |
+| Stockage                                   | Neon (eu-central-1) via Hyperdrive `clip-neon` + Drizzle, une connexion par appel                                    | testé contre PGlite et contre Neon en local                         |
+| Secrets d'admin                            | SHA-256 (WebCrypto), seul le hash est stocké                                                                         | fait                                                                |
+| Médias (miniatures importées, faux Stream) | R2                                                                                                                   | fait                                                                |
+| Planche de vignettes                       | Container (ffmpeg) piloté par le DO `Storyboard`                                                                     | placeholder, désactivé                                              |
+| Notifications de commentaires              | Queues → Email Service, depuis `notifications@clipshare.dev`                                                         | bindings déclarés, handler vide                                     |
+| Réponse aux commentaires par email         | Email Routing sur `reply+<jeton>@clipshare.dev` (sous-adressage)                                                     | handler vide                                                        |
+| Questions sur la vidéo                     | AI Search sur la transcription                                                                                       | binding déclaré                                                     |
+| Carte de partage, formats                  | Images                                                                                                               | binding déclaré                                                     |
+| Cache des vues publiques                   | KV                                                                                                                   | binding déclaré                                                     |
+| Interrupteurs IA, chaos                    | Flagship                                                                                                             | binding déclaré ; variables `CLIP_CHAOS` en attendant               |
+| Traces                                     | Workers Observability                                                                                                | activée ; spans Effect pas encore exportés                          |
 
 ## Domaine et mise en place Cloudflare
 
@@ -148,6 +148,9 @@ CLIP_CONTAINERS=0 CLIP_CHAOS=0.5 vp run dev   # mode chaos : 50 % d'échecs, ret
 | 7   | Typage SQL à la compilation                              | **OK.** Vérifié : colonne inexistante, valeur d'enum invalide et mauvais type de retour sont refusés par `tsc`. Le JSONB `status_details` est typé avec l'encodage du Schema du domaine, et l'agrégat relu est revalidé par ce Schema.                                                                                                                                                                                                                                   |
 
 ## Pièges relevés
+
+- Le binding Stream ne crée que des uploads POST limités à 200 Mo (erreur 413 au-delà). L'upload tus (morceaux de 50 Mo, reprenable, jusqu'à 2 Go) passe par l'API REST de Stream, avec un token Stream:Edit rangé dans Secrets Store (`default_secrets_store`, binding `STREAM_API_TOKEN`) : prod, previews et Workers de PR le partagent sans secret à renvoyer.
+- Secrets Store en local : `cf dev` lit `apps/api/.cloudflare/state`, alors que `cf secrets-store secrets create --local` écrit par défaut dans l'état global de la CLI. Ajouter `--persist-to apps/api/.cloudflare/state`.
 
 - Hyperdrive met en cache les `SELECT` par défaut (60 s) en production, pas en local : le pipeline relisait une vidéo périmée (`Uploading` juste après `Ready`). Cache désactivé sur `clip-neon` (`cf hyperdrive update … --caching-disabled`).
 - `env.DB.connectionString` (Hyperdrive) ne se lit pas au chargement du module (erreur 10021 au déploiement, invisible en `cf dev`) : la Layer Postgres est construite à chaque appel.

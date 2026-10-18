@@ -13,6 +13,7 @@ export const StreamTest = Layer.succeed(
       Effect.sync(() => ({
         uid: StreamUid.make(crypto.randomUUID()),
         uploadUrl: "https://upload.test",
+        protocol: "tus" as const,
       })),
     details: () =>
       Effect.succeed({
