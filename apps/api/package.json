@@ -2,6 +2,9 @@
   "name": "@clip/api",
   "private": true,
   "type": "module",
+  "exports": {
+    "./testing": "./src/testing.ts"
+  },
   "scripts": {
     "types": "cf workers types",
     "test": "vp test"
@@ -11,17 +14,14 @@
     "@clip/db": "workspace:*",
     "@clip/domain": "workspace:*",
     "@clip/platform": "workspace:*",
-    "@effect/sql-pg": "catalog:",
-    "effect": "catalog:",
-    "postal-mime": "catalog:"
+    "effect": "catalog:"
   },
   "devDependencies": {
+    "@clip/config": "workspace:*",
     "@clip/testing": "workspace:*",
-    "@clip/web": "catalog:",
     "@cloudflare/vite-plugin": "catalog:",
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
-    "@vitejs/plugin-react": "catalog:",
     "cf": "catalog:",
     "typescript": "catalog:",
     "vite-plus": "catalog:"

@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "ready": "vp check && vp run -r test && vp run -r build",
-    "dev": "vp run @clip/api#dev",
-    "deploy": "vp run @clip/api#deploy",
+    "dev": "vp run @clip/web#dev",
+    "deploy": "vp run @clip/jobs#deploy && vp run @clip/api#deploy && vp run @clip/web#deploy",
     "prepare": "vp config && effect-tsgo patch --typescript --oxlint"
   },
   "devDependencies": {

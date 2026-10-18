@@ -9,7 +9,7 @@ export class AdminKeys extends Context.Service<
     readonly generate: Effect.Effect<{ readonly key: string; readonly hash: string }>;
     hash(key: string): Effect.Effect<string>;
   }
->()("@clip/api/AdminKeys") {
+>()("@clip/platform/AdminKeys") {
   static readonly layer = Layer.sync(AdminKeys, () => {
     const hash = (key: string) =>
       Effect.promise(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(key))).pipe(

@@ -4,7 +4,7 @@ import { Context, Layer } from "effect";
 export class Features extends Context.Service<
   Features,
   { readonly ai: boolean; readonly storyboard: boolean; readonly chaos: number }
->()("@clip/api/Features") {
+>()("@clip/platform/Features") {
   static readonly layer = (features: { ai: boolean; storyboard: boolean; chaos: number }) =>
     Layer.succeed(Features, Features.of(features));
 }

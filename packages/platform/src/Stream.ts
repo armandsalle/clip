@@ -42,7 +42,7 @@ export class StreamVideos extends Context.Service<
     uploadCaptions(uid: StreamUid, language: string, vtt: string): Effect.Effect<void>;
     remove(uid: StreamUid): Effect.Effect<void>;
   }
->()("@clip/api/StreamVideos") {
+>()("@clip/platform/StreamVideos") {
   static readonly layer = (
     binding: StreamBinding,
     rest: { accountId: string; token: () => Promise<string> },
@@ -126,6 +126,24 @@ export class StreamVideos extends Context.Service<
    * Worker), la vidéo est « prête » quelques secondes après, et la lecture se fait
    * en MP4 direct depuis R2.
    */
+  /**
+   * Stream réel quand le Worker est « remote » (prod, ou CLIP_REMOTE=1) et que les
+   * bindings existent ; sinon faux Stream sur R2 (dev local sans compte).
+   */
+  static readonly layerFor = (env: {
+    readonly remote: boolean;
+    readonly stream: StreamBinding | undefined;
+    readonly token: SecretsStoreSecret | undefined;
+    readonly accountId: string;
+    readonly media: R2Bucket;
+  }) => {
+    const { stream, token } = env;
+    return env.remote && stream && token
+      ? // Secrets Store : lu à la demande, dans le handler.
+        StreamVideos.layer(stream, { accountId: env.accountId, token: () => token.get() })
+      : StreamVideos.layerFake(env.media);
+  };
+
   static readonly layerFake = (bucket: R2Bucket, encodingDelayMs = 4000) =>
     Layer.succeed(
       StreamVideos,

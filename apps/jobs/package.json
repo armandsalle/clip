@@ -1,0 +1,28 @@
+{
+  "name": "@clip/jobs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "types": "cf workers types",
+    "test": "vp test"
+  },
+  "dependencies": {
+    "@clip/contract": "workspace:*",
+    "@clip/db": "workspace:*",
+    "@clip/domain": "workspace:*",
+    "@clip/platform": "workspace:*",
+    "effect": "catalog:",
+    "postal-mime": "catalog:"
+  },
+  "devDependencies": {
+    "@clip/api": "workspace:*",
+    "@clip/config": "workspace:*",
+    "@clip/testing": "workspace:*",
+    "@cloudflare/vite-plugin": "catalog:",
+    "@effect/vitest": "catalog:",
+    "@types/node": "catalog:",
+    "cf": "catalog:",
+    "typescript": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}

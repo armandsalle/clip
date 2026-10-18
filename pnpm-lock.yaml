@@ -164,9 +164,6 @@ settings:
 
 catalogs:
   default:
-    '@clip/web':
-      specifier: workspace:*
-      version: workspace:*
     '@cloudflare/vite-plugin':
       specifier: 2.0.0-beta.v.1
       version: 2.0.0-beta.v.1
@@ -277,22 +274,16 @@ importers:
       '@clip/platform':
         specifier: workspace:*
         version: link:../../packages/platform
-      '@effect/sql-pg':
-        specifier: 'catalog:'
-        version: 4.0.5(effect@4.0.5)
       effect:
         specifier: 'catalog:'
         version: 4.0.5
-      postal-mime:
-        specifier: 'catalog:'
-        version: 4.0.11
     devDependencies:
+      '@clip/config':
+        specifier: workspace:*
+        version: link:../../packages/config
       '@clip/testing':
         specifier: workspace:*
         version: link:../../packages/testing
-      '@clip/web':
-        specifier: 'catalog:'
-        version: link:../web
       '@cloudflare/vite-plugin':
         specifier: 'catalog:'
         version: 2.0.0-beta.v.1(@types/node@24.19.2)(@voidzero-dev/vite-plus-core@1.3.0(@types/node@24.19.2)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.1))(workerd@1.20261012.1)
@@ -302,9 +293,55 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 24.19.2
-      '@vitejs/plugin-react':
+      cf:
         specifier: 'catalog:'
-        version: 6.1.2(@voidzero-dev/vite-plus-core@1.3.0(@types/node@24.19.2)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.1))
+        version: 1.0.0-beta.18(@types/node@24.19.2)
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vite-plus:
+        specifier: 'catalog:'
+        version: 1.3.0(@types/node@24.19.2)(@vitest/ui@5.0.5)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.1)
+
+  apps/jobs:
+    dependencies:
+      '@clip/contract':
+        specifier: workspace:*
+        version: link:../../packages/contract
+      '@clip/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@clip/domain':
+        specifier: workspace:*
+        version: link:../../packages/domain
+      '@clip/platform':
+        specifier: workspace:*
+        version: link:../../packages/platform
+      effect:
+        specifier: 'catalog:'
+        version: 4.0.5
+      postal-mime:
+        specifier: 'catalog:'
+        version: 4.0.11
+    devDependencies:
+      '@clip/api':
+        specifier: workspace:*
+        version: link:../api
+      '@clip/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@clip/testing':
+        specifier: workspace:*
+        version: link:../../packages/testing
+      '@cloudflare/vite-plugin':
+        specifier: 'catalog:'
+        version: 2.0.0-beta.v.1(@types/node@24.19.2)(@voidzero-dev/vite-plus-core@1.3.0(@types/node@24.19.2)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.1))(workerd@1.20261012.1)
+      '@effect/vitest':
+        specifier: 'catalog:'
+        version: 4.0.5(effect@4.0.5)(vitest@5.0.5)
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.19.2
       cf:
         specifier: 'catalog:'
         version: 1.0.0-beta.18(@types/node@24.19.2)
@@ -339,12 +376,39 @@ importers:
         specifier: 'catalog:'
         version: 4.3.1
     devDependencies:
+      '@clip/config':
+        specifier: workspace:*
+        version: link:../../packages/config
+      '@cloudflare/vite-plugin':
+        specifier: 'catalog:'
+        version: 2.0.0-beta.v.1(@types/node@24.19.2)(@voidzero-dev/vite-plus-core@1.3.0(@types/node@24.19.2)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.1))(workerd@1.20261012.1)
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.19.2
       '@types/react':
         specifier: 'catalog:'
         version: 19.3.0
       '@types/react-dom':
         specifier: 'catalog:'
         version: 19.3.0(@types/react@19.3.0)
+      '@vitejs/plugin-react':
+        specifier: 'catalog:'
+        version: 6.1.2(@voidzero-dev/vite-plus-core@1.3.0(@types/node@24.19.2)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.1))
+      cf:
+        specifier: 'catalog:'
+        version: 1.0.0-beta.18(@types/node@24.19.2)
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vite-plus:
+        specifier: 'catalog:'
+        version: 1.3.0(@types/node@24.19.2)(@vitest/ui@5.0.5)(jiti@2.7.0)(typescript@7.0.2)(yaml@2.9.1)
+
+  packages/config:
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.19.2
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -457,6 +521,9 @@ importers:
 
   packages/testing:
     dependencies:
+      '@clip/contract':
+        specifier: workspace:*
+        version: link:../contract
       '@clip/db':
         specifier: workspace:*
         version: link:../db

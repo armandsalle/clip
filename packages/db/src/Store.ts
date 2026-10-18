@@ -1,10 +1,11 @@
 import { Context, Effect, Layer, Schema } from "effect";
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, ne, notInArray, sql } from "drizzle-orm";
 import {
   Comment,
   type CommentId,
   EnrichmentStatus,
   Forbidden,
+  isTerminal,
   Video,
   VideoNotFound,
   type EnrichmentKind,
@@ -66,8 +67,10 @@ export class Store extends Context.Service<
     findCommentByReplyToken(token: string): Effect.Effect<Comment | null>;
     /** Jeton de réponse d'un commentaire (null pour les anciens commentaires). */
     replyTokenOf(commentId: CommentId): Effect.Effect<string | null>;
+    /** Vidéos qui ont une durée de vie et ne sont pas encore expirées ni supprimées (les plus anciennes d'abord). */
+    expiring(limit: number): Effect.Effect<ReadonlyArray<Video>>;
   }
->()("@clip/api/Store") {
+>()("@clip/db/Store") {
   static readonly layerMemory = Layer.sync(Store, () => {
     const vids = new Map<VideoId, { video: Video; hash: string; email: string | null }>();
     const enrich = new Map<VideoId, Map<EnrichmentKind, EnrichmentRecord>>();
@@ -114,6 +117,13 @@ export class Store extends Context.Service<
       findCommentByReplyToken: (token) => Effect.sync(() => tokens.get(token) ?? null),
       replyTokenOf: (commentId) =>
         Effect.sync(() => [...tokens].find(([, c]) => c.id === commentId)?.[0] ?? null),
+      expiring: (limit) =>
+        Effect.sync(() =>
+          [...vids.values()]
+            .map((r) => r.video)
+            .filter((v) => v.expiry !== "never" && !isTerminal(v))
+            .slice(0, limit),
+        ),
     });
   });
 
@@ -149,6 +159,7 @@ export class Store extends Context.Service<
       addComment: true,
       findCommentByReplyToken: true,
       replyTokenOf: true,
+      expiring: true,
     } satisfies Record<keyof Store["Service"], true>;
     return Layer.succeed(
       Store,
@@ -301,6 +312,18 @@ export class Store extends Context.Service<
           const rows = yield* db.select().from(comments).where(eq(comments.replyToken, token));
           const row = rows[0];
           return row ? yield* decodeComment(commentInput(row)) : null;
+        }, Effect.orDie),
+
+        expiring: Effect.fn("Store.expiring")(function* (limit) {
+          const rows = yield* db
+            .select()
+            .from(videos)
+            .where(
+              and(ne(videos.expiry, "never"), notInArray(videos.status, ["Expired", "Deleted"])),
+            )
+            .orderBy(asc(videos.createdAt))
+            .limit(limit);
+          return yield* Effect.forEach(rows, toVideo);
         }, Effect.orDie),
 
         addComment: Effect.fn("Store.addComment")(function* (comment) {

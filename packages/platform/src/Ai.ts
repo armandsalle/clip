@@ -88,7 +88,7 @@ const segmentsFromWords = (words: ReadonlyArray<typeof NovaWord.Type>): Array<Se
 export class Transcriber extends Context.Service<
   Transcriber,
   { transcribe(audio: AudioInput, duration: number): Effect.Effect<Transcript, AiError> }
->()("@clip/api/Transcriber") {
+>()("@clip/platform/Transcriber") {
   /** Deepgram Nova-3 : intervenants (diarisation), langue détectée, ponctuation. */
   static readonly layer = (ai: Ai) => {
     const decode = Schema.decodeUnknownEffect(NovaOutput);
@@ -168,7 +168,7 @@ export class Summarizer extends Context.Service<
       AiError
     >;
   }
->()("@clip/api/Summarizer") {
+>()("@clip/platform/Summarizer") {
   static readonly layer = (ai: Ai) => {
     const Output = Schema.fromJsonString(
       Schema.Struct({
@@ -238,3 +238,9 @@ export class Summarizer extends Context.Service<
     }),
   );
 }
+
+/** IA réelle (Workers AI) en remote, factice sinon : la même règle pour tous les Workers. */
+export const AiFor = (ai: Ai | undefined) =>
+  ai
+    ? Layer.mergeAll(Transcriber.layer(ai), Summarizer.layer(ai))
+    : Layer.mergeAll(Transcriber.layerFake, Summarizer.layerFake);

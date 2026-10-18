@@ -6,6 +6,7 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
+    "@clip/contract": "workspace:*",
     "@clip/db": "workspace:*",
     "@clip/domain": "workspace:*",
     "@clip/platform": "workspace:*",

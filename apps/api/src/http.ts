@@ -1,10 +1,10 @@
-import { DateTime, Effect, Layer, Option, Schema } from "effect";
+import { DateTime, Effect, Layer, Option } from "effect";
 import { HttpApiBuilder } from "effect/http-api";
+import { HttpServerRequest } from "effect/http";
 import {
   canCommentAt,
   Comment,
   CommentId,
-  decide,
   EnrichmentKind,
   EnrichmentStatus,
   Thumbnail,
@@ -13,33 +13,38 @@ import {
   VideoStatus,
   type VideoEvent,
 } from "@clip/domain";
-import { Chapter, ClipApi, TranscriptSegment, VideoView } from "@clip/contract";
+import {
+  ClipApi,
+  decodeResult,
+  SuggestionsResult,
+  SummaryResult,
+  TranscriptResult,
+  VideoView,
+} from "@clip/contract";
 import {
   AdminKeys,
   Live,
   Notifications,
   Pipeline,
+  RateLimits,
   StreamVideos,
   type StreamDetails,
 } from "@clip/platform";
 import { Store } from "@clip/db";
+import { Videos } from "./Videos.ts";
 
 const MAX_DURATION_SECONDS = 3600;
 const KINDS = EnrichmentKind.literals;
 
-// Résultats d'enrichissement : stockés en JSONB, relus avec tolérance (une étape
-// pas encore passée donne simplement une valeur vide).
-const SummaryResult = Schema.Struct({ summary: Schema.String, chapters: Schema.Array(Chapter) });
-const TranscriptResult = Schema.Struct({
-  language: Schema.optionalKey(Schema.NullOr(Schema.String)),
-  segments: Schema.Array(TranscriptSegment),
-});
-const SuggestionsResult = Schema.Struct({ times: Schema.Array(Schema.Finite) });
+const summaryOf = decodeResult(SummaryResult);
+const transcriptOf = decodeResult(TranscriptResult);
+const suggestionsOf = decodeResult(SuggestionsResult);
 
-const decodeOption = <S extends Schema.Top & { readonly DecodingServices: never }>(schema: S) => {
-  const decode = Schema.decodeUnknownOption(schema);
-  return (value: unknown): Option.Option<S["Type"]> => decode(value);
-};
+/** Clé de limitation : l'adresse du client (en-tête posé par Cloudflare). */
+const clientKey = Effect.map(
+  HttpServerRequest.HttpServerRequest,
+  (request) => request.headers["cf-connecting-ip"] ?? "local",
+);
 
 const thumbnailUrl = (video: Video, details: StreamDetails) =>
   Thumbnail.match(video.thumbnail, {
@@ -58,10 +63,8 @@ export const VideosHandlers = HttpApiBuilder.group(
     const live = yield* Live;
     const pipeline = yield* Pipeline;
     const notifications = yield* Notifications;
-
-    const summaryOf = decodeOption(SummaryResult);
-    const transcriptOf = decodeOption(TranscriptResult);
-    const suggestionsOf = decodeOption(SuggestionsResult);
+    const videos = yield* Videos;
+    const limits = yield* RateLimits;
 
     const view = Effect.fn("Videos.view")(function* (id: VideoId) {
       const video = yield* store.getVideo(id);
@@ -71,14 +74,8 @@ export const VideosHandlers = HttpApiBuilder.group(
         video.status._tag === "Ready"
           ? Option.some(yield* stream.details(video.streamUid))
           : Option.none();
-      const summary = Option.flatMap(
-        Option.fromNullishOr(byKind.get("summary")?.result),
-        summaryOf,
-      );
-      const stored = Option.flatMap(
-        Option.fromNullishOr(byKind.get("transcript")?.result),
-        transcriptOf,
-      );
+      const summary = summaryOf(byKind.get("summary")?.result);
+      const stored = transcriptOf(byKind.get("transcript")?.result);
       return new VideoView({
         video,
         playback: Option.match(details, {
@@ -99,26 +96,10 @@ export const VideosHandlers = HttpApiBuilder.group(
           () => [],
         ),
         thumbnailSuggestions: Option.getOrElse(
-          Option.map(
-            Option.flatMap(Option.fromNullishOr(byKind.get("suggestions")?.result), suggestionsOf),
-            (s) => s.times,
-          ),
+          Option.map(suggestionsOf(byKind.get("suggestions")?.result), (s) => s.times),
           () => [],
         ),
       });
-    });
-
-    // Appliquer une suite d'événements du domaine, enregistrer, diffuser.
-    const apply = Effect.fn("Videos.apply")(function* (
-      id: VideoId,
-      events: ReadonlyArray<VideoEvent>,
-    ) {
-      const now = yield* DateTime.now;
-      let video = yield* store.getVideo(id);
-      for (const event of events) video = yield* Effect.fromResult(decide(video, event, now));
-      yield* store.saveVideo(video);
-      yield* live.publish(id, { _tag: "VideoChanged", video });
-      return video;
     });
 
     const requireAdmin = Effect.fn("Videos.requireAdmin")(function* (id: VideoId, key: string) {
@@ -128,6 +109,7 @@ export const VideosHandlers = HttpApiBuilder.group(
     return handlers.handleAll({
       create: ({ payload }) =>
         Effect.gen(function* () {
+          yield* limits.check("create", yield* clientKey);
           const upload = yield* stream.createUpload(MAX_DURATION_SECONDS, payload.size);
           const admin = yield* keys.generate;
           const video = new Video({
@@ -161,7 +143,7 @@ export const VideosHandlers = HttpApiBuilder.group(
           if (payload.expiry !== undefined)
             events.push({ _tag: "SetExpiry", expiry: payload.expiry });
           if (payload.email !== undefined) yield* store.setOwnerEmail(params.id, payload.email);
-          const video = yield* apply(params.id, events);
+          const video = yield* videos.apply(params.id, events);
           if (video.thumbnail._tag === "Frame" && video.status._tag === "Ready") {
             const pct =
               video.status.duration > 0 ? video.thumbnail.time / video.status.duration : 0.5;
@@ -173,9 +155,7 @@ export const VideosHandlers = HttpApiBuilder.group(
       remove: ({ params, headers }) =>
         Effect.gen(function* () {
           yield* requireAdmin(params.id, headers["x-clip-admin"]);
-          const video = yield* apply(params.id, [{ _tag: "Delete" }]);
-          yield* stream.remove(video.streamUid);
-          return video;
+          return yield* videos.apply(params.id, [{ _tag: "Delete" }]);
         }),
 
       comments: ({ params }) =>
@@ -186,6 +166,7 @@ export const VideosHandlers = HttpApiBuilder.group(
 
       comment: ({ params, payload }) =>
         Effect.gen(function* () {
+          yield* limits.check("comment", yield* clientKey);
           const video = yield* store.getVideo(params.id);
           yield* Effect.fromResult(canCommentAt(video, payload.time));
           const comment = new Comment({

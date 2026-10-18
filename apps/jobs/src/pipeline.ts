@@ -1,19 +1,16 @@
 import { DateTime, Duration, Effect, Option, Ref, Schedule, Schema } from "effect";
+import { EnrichmentStatus, VideoId, expiresAt, type EnrichmentKind } from "@clip/domain";
 import {
-  Comment,
-  CommentId,
-  decide,
-  EnrichmentStatus,
-  VideoId,
-  expiresAt,
-  type EnrichmentKind,
-} from "@clip/domain";
-import { TranscriptSegment } from "@clip/contract";
+  type CommentNotification,
+  decodeResult,
+  SummaryResult,
+  TranscriptResult,
+} from "@clip/contract";
 import {
   AiError,
   commentsEmail,
-  extractReplyText,
   Features,
+  InternalApi,
   Live,
   Mailer,
   readyEmail,
@@ -21,14 +18,14 @@ import {
   StreamVideos,
   Summarizer,
   toVtt,
-  tokenFromAddress,
   Transcriber,
-  type CommentNotification,
 } from "@clip/platform";
 import { Store } from "@clip/db";
 
 // Logique du pipeline en Effect pur (testable sans Workflow). Le Workflow
 // Cloudflare (index.ts) appelle chaque fonction dans un `step.do` durable.
+// jobs écrit les enrichissements ; tout changement d'une vidéo passe par la RPC
+// d'api (`InternalApi`), seul écrivain des vidéos.
 
 export class StepFailed extends Schema.TaggedError<StepFailed, { readonly brand: unique symbol }>()(
   "StepFailed",
@@ -47,30 +44,37 @@ const publishStep = Effect.fn("pipeline.publishStep")(function* (
 const elapsedMs = (from: DateTime.Utc, to: DateTime.Utc) =>
   Math.round(Duration.toMillis(DateTime.distance(from, to)));
 
-/** Encodage : `ready` (vidéo passée en Ready), `waiting` ou `failed`. */
-export const checkEncoding = Effect.fn("pipeline.checkEncoding")(function* (videoId: VideoId) {
+/**
+ * Encodage : `ready` (vidéo passée en Ready), `waiting` ou `failed`. `first` : seul
+ * le premier passage annonce l'étape en cours (pas une publication par sondage).
+ */
+export const checkEncoding = Effect.fn("pipeline.checkEncoding")(function* (
+  videoId: VideoId,
+  first = true,
+) {
   const store = yield* Store;
   const stream = yield* StreamVideos;
+  const api = yield* InternalApi;
   const video = yield* store.getVideo(videoId);
   if (video.status._tag === "Ready") return "ready" as const;
   const details = yield* stream.details(video.streamUid);
-  const now = yield* DateTime.now;
   const event = details.failed
     ? ({ _tag: "EncodingFailed", reason: details.failed } as const)
     : details.ready
       ? ({ _tag: "Encoded", duration: details.duration } as const)
       : null;
   if (event === null) {
-    yield* publishStep(
-      videoId,
-      "encoding",
-      EnrichmentStatus.cases.Running.make({ attempt: 1, startedAt: video.createdAt }),
-    );
+    if (first) {
+      yield* publishStep(
+        videoId,
+        "encoding",
+        EnrichmentStatus.cases.Running.make({ attempt: 1, startedAt: video.createdAt }),
+      );
+    }
     return "waiting" as const;
   }
-  const next = yield* Effect.fromResult(decide(video, event, now)).pipe(Effect.orDie);
-  yield* store.saveVideo(next);
-  yield* Live.use((live) => live.publish(videoId, { _tag: "VideoChanged", video: next }));
+  yield* api.ApplyVideoEvent({ videoId, event });
+  const now = yield* DateTime.now;
   yield* publishStep(
     videoId,
     "encoding",
@@ -174,8 +178,17 @@ const waitingStep = Effect.fn("pipeline.waitingStep")(function* (
         startedAt,
         ...(state.progress === undefined ? {} : { progress: state.progress }),
       });
-  yield* store.setEnrichment(videoId, kind, status);
-  yield* publishStep(videoId, kind, status);
+  // Publié seulement si l'état ou la progression change : un sondage sans nouveauté
+  // ne réveille ni la base ni la room.
+  const previous = (yield* store.enrichments(videoId)).find((r) => r.kind === kind)?.status;
+  const unchanged =
+    previous?._tag === "Running" &&
+    status._tag === "Running" &&
+    previous.progress === status.progress;
+  if (!unchanged) {
+    yield* store.setEnrichment(videoId, kind, status);
+    yield* publishStep(videoId, kind, status);
+  }
   return state.done ? ("done" as const) : ("waiting" as const);
 });
 
@@ -209,15 +222,13 @@ export const checkHd = Effect.fn("pipeline.checkHd")(function* (
   });
 });
 
-const TranscriptResult = Schema.Struct({
-  language: Schema.optionalKey(Schema.NullOr(Schema.String)),
-  segments: Schema.Array(TranscriptSegment),
-});
+const transcriptOf = decodeResult(TranscriptResult);
+const summaryOf = decodeResult(SummaryResult);
 
 const storedTranscript = Effect.fn("pipeline.storedTranscript")(function* (videoId: VideoId) {
   const records = yield* Store.use((s) => s.enrichments(videoId));
   const raw = records.find((r) => r.kind === "transcript")?.result;
-  return Option.getOrElse(Schema.decodeUnknownOption(TranscriptResult)(raw), () => ({
+  return Option.getOrElse(transcriptOf(raw), () => ({
     language: null,
     segments: [],
   }));
@@ -240,12 +251,6 @@ export const transcript = (videoId: VideoId) =>
       }),
     );
   });
-
-/** VTT de la transcription enregistrée, ou `null` s'il n'y en a pas encore. */
-export const captionsVtt = Effect.fn("pipeline.captionsVtt")(function* (videoId: VideoId) {
-  const { segments } = yield* storedTranscript(videoId);
-  return segments.length === 0 ? null : toVtt(segments);
-});
 
 /** Sous-titres renvoyés à Stream : ils apparaissent dans le lecteur et le manifeste. */
 export const captions = (videoId: VideoId) =>
@@ -278,16 +283,8 @@ export const summary = (videoId: VideoId) =>
         if (segments.length === 0)
           return yield* new AiError({ step: "summary", message: "pas de transcription" });
         const result = yield* Summarizer.use((s) => s.summarize(segments, language ?? null));
-        // Le titre généré ne remplace jamais un titre choisi par le propriétaire.
-        const store = yield* Store;
-        const video = yield* store.getVideo(videoId);
-        if (video.title === null) {
-          const renamed = yield* Effect.fromResult(
-            decide(video, { _tag: "Rename", title: result.title }, yield* DateTime.now),
-          ).pipe(Effect.orDie);
-          yield* store.saveVideo(renamed);
-          yield* Live.use((l) => l.publish(videoId, { _tag: "VideoChanged", video: renamed }));
-        }
+        // Le titre généré ne remplace jamais un titre choisi par le propriétaire (api décide).
+        yield* InternalApi.use((api) => api.SuggestTitle({ videoId, title: result.title }));
         return { summary: result.summary, chapters: result.chapters };
       }),
     );
@@ -318,28 +315,31 @@ export const index = (videoId: VideoId) =>
     return yield* enrichment(videoId, "index", Effect.succeed({ indexed: true }));
   });
 
-/** Date d'expiration de la vidéo, si elle en a une. */
-export const expiryOf = Effect.fn("pipeline.expiryOf")(function* (videoId: VideoId) {
-  const video = yield* Store.use((s) => s.getVideo(videoId));
-  return Option.map(expiresAt(video), (d) => d.epochMilliseconds);
-});
-
-export const expire = Effect.fn("pipeline.expire")(function* (videoId: VideoId) {
-  const store = yield* Store;
-  const video = yield* store.getVideo(videoId);
-  const next = decide(video, { _tag: "Expire" }, yield* DateTime.now);
-  if (next._tag === "Failure") return; // déjà supprimée
-  yield* store.saveVideo(next.success);
-  yield* StreamVideos.use((s) => s.remove(video.streamUid));
-  yield* Live.use((l) => l.publish(videoId, { _tag: "VideoChanged", video: next.success }));
+/**
+ * Cron d'expiration : chaque vidéo dont la date est passée reçoit `Expire` (api
+ * l'enregistre, retire le fichier de Stream et prévient la page). Renvoie le nombre
+ * de vidéos expirées. Une vidéo en échec n'empêche pas les suivantes.
+ */
+export const expireDue = Effect.fn("pipeline.expireDue")(function* () {
+  const now = yield* DateTime.now;
+  const due = (yield* Store.use((s) => s.expiring(500))).filter((video) =>
+    Option.exists(expiresAt(video), (at) => DateTime.isLessThanOrEqualTo(at, now)),
+  );
+  const results = yield* Effect.forEach(
+    due,
+    (video) =>
+      InternalApi.use((api) =>
+        api.ApplyVideoEvent({ videoId: video.id, event: { _tag: "Expire" } }),
+      ).pipe(
+        Effect.as(true),
+        Effect.catch((error) => Effect.as(Effect.logWarning("expire", video.id, error), false)),
+      ),
+    { concurrency: 4 },
+  );
+  return results.filter(Boolean).length;
 });
 
 // Emails ------------------------------------------------------------------------------------
-
-const SummaryResult = Schema.Struct({
-  summary: Schema.String,
-  chapters: Schema.Array(Schema.Struct({ time: Schema.Finite, title: Schema.String })),
-});
 
 /** « Votre vidéo est prête », au propriétaire s'il a laissé son email. */
 export const notify = (videoId: VideoId) =>
@@ -355,9 +355,7 @@ export const notify = (videoId: VideoId) =>
         const video = yield* store.getVideo(videoId);
         const records = yield* store.enrichments(videoId);
         const summary = Option.getOrNull(
-          Schema.decodeUnknownOption(SummaryResult)(
-            records.find((r) => r.kind === "summary")?.result,
-          ),
+          summaryOf(records.find((r) => r.kind === "summary")?.result),
         );
         const email = readyEmail(
           mailer.domain,
@@ -380,12 +378,11 @@ export const notifyComments = Effect.fn("pipeline.notifyComments")(function* (
 ) {
   const store = yield* Store;
   const mailer = yield* Mailer;
-  const byVideo = new Map<string, Set<string>>();
+  const byVideo = new Map<VideoId, Set<string>>();
   for (const n of notifications) {
     byVideo.set(n.videoId, (byVideo.get(n.videoId) ?? new Set()).add(n.commentId));
   }
-  for (const [rawId, commentIds] of byVideo) {
-    const videoId = VideoId.make(rawId);
+  for (const [videoId, commentIds] of byVideo) {
     const to = yield* store.ownerEmail(videoId).pipe(Effect.orElseSucceed(() => null));
     if (to === null) continue;
     const video = yield* store.getVideo(videoId).pipe(Effect.orDie);
@@ -407,46 +404,4 @@ export const notifyComments = Effect.fn("pipeline.notifyComments")(function* (
       EnrichmentStatus.cases.Done.make({ durationMs: 0 }),
     );
   }
-});
-
-export class ReplyRejected extends Schema.TaggedError<
-  ReplyRejected,
-  { readonly brand: unique symbol }
->()("ReplyRejected", { reason: Schema.String }) {}
-
-/** Réponse par email : publiée sous le commentaire visé, en direct. */
-export const replyByEmail = Effect.fn("pipeline.replyByEmail")(function* (input: {
-  readonly to: string;
-  readonly from: string;
-  readonly text: string;
-}) {
-  const store = yield* Store;
-  const token = tokenFromAddress(input.to);
-  if (token === null) return yield* new ReplyRejected({ reason: "adresse inconnue" });
-  const parent = yield* store.findCommentByReplyToken(token);
-  if (parent === null) return yield* new ReplyRejected({ reason: "adresse inconnue" });
-  const owner = yield* store.ownerEmail(parent.videoId).pipe(Effect.orElseSucceed(() => null));
-  if (owner === null || owner.trim().toLowerCase() !== input.from.trim().toLowerCase()) {
-    return yield* new ReplyRejected({ reason: "expéditeur non autorisé" });
-  }
-  const body = extractReplyText(input.text);
-  if (body === null) return yield* new ReplyRejected({ reason: "réponse vide" });
-  const reply = new Comment({
-    id: CommentId.make(crypto.randomUUID()),
-    videoId: parent.videoId,
-    parentId: parent.parentId ?? parent.id,
-    author: "Propriétaire",
-    body,
-    time: parent.time,
-    via: "email",
-    createdAt: yield* DateTime.now,
-  });
-  yield* store.addComment(reply);
-  yield* Live.use((l) => l.publish(parent.videoId, { _tag: "CommentAdded", comment: reply }));
-  yield* publishStep(
-    parent.videoId,
-    "mail.reply",
-    EnrichmentStatus.cases.Done.make({ durationMs: 0 }),
-  );
-  return reply;
 });

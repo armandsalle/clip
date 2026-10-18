@@ -10,7 +10,7 @@ export class Pipeline extends Context.Service<
     /** Réveille le Workflow : Stream a fini (ou raté) l'encodage. */
     notifyEncoded(videoId: VideoId): Effect.Effect<void>;
   }
->()("@clip/api/Pipeline") {
+>()("@clip/platform/Pipeline") {
   static readonly layer = (binding: Workflow) =>
     Layer.succeed(
       Pipeline,

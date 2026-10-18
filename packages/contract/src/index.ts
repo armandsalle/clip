@@ -1,5 +1,6 @@
 import { Schema } from "effect";
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/http-api";
+import { Chapter, TranscriptSegment } from "./enrichments.ts";
 import {
   AuthorName,
   Comment,
@@ -19,20 +20,14 @@ import {
   VideoNotReady,
 } from "@clip/domain";
 
-// Contrat partagé entre le Worker et le front : le client typé en est dérivé.
+// Contrat public (HttpApi) partagé entre api et le front : le client typé en est dérivé.
+// Le contrat interne (RPC jobs → api) est dans internal.ts.
+
+export * from "./enrichments.ts";
+export * from "./internal.ts";
 
 /** Lien d'admin : envoyé dans l'en-tête `x-clip-admin`. */
 const AdminHeaders = { "x-clip-admin": Schema.String };
-
-export const TranscriptSegment = Schema.Struct({
-  start: Seconds,
-  end: Seconds,
-  text: Schema.String,
-  /** Intervenant (0, 1, …) détecté par la diarisation ; absent des anciennes transcriptions. */
-  speaker: Schema.optionalKey(Schema.NullOr(Schema.Int)),
-});
-
-export const Chapter = Schema.Struct({ time: Seconds, title: Schema.String });
 
 /** Ce que voit la page vidéo : la vidéo, ses lectures et l'avancement du pipeline. */
 export class VideoView extends Schema.Class<VideoView, { readonly brand: unique symbol }>(
@@ -83,11 +78,21 @@ export const NewComment = Schema.Struct({
   parentId: Schema.NullOr(CommentId),
 });
 
+/** Garde-fou de coût (galerie publique) : trop de dépôts ou de commentaires d'une même adresse. */
+export class TooManyRequests extends Schema.TaggedError<
+  TooManyRequests,
+  { readonly brand: unique symbol }
+>()("TooManyRequests", { action: Schema.String }, { httpApiStatus: 429 }) {}
+
 const CommandErrors = [VideoNotFound, Forbidden, InvalidTransition, VideoNotReady, OutOfRange];
 
 export class VideosGroup extends HttpApiGroup.make("videos")
   .add(
-    HttpApiEndpoint.post("create", "/", { payload: CreateVideo, success: VideoCreated }),
+    HttpApiEndpoint.post("create", "/", {
+      payload: CreateVideo,
+      success: VideoCreated,
+      error: TooManyRequests,
+    }),
     HttpApiEndpoint.get("get", "/:id", {
       params: { id: VideoId },
       success: VideoView,
@@ -115,7 +120,7 @@ export class VideosGroup extends HttpApiGroup.make("videos")
       params: { id: VideoId },
       payload: NewComment,
       success: Comment,
-      error: CommandErrors,
+      error: [...CommandErrors, TooManyRequests],
     }),
   )
   .prefix("/videos") {}
@@ -129,20 +134,3 @@ export class ClipApi extends HttpApi.make("clip")
   .add(SystemGroup)
   .prefix("/api")
   .annotateMerge(OpenApi.annotations({ title: "Clip API" })) {}
-
-// Événements temps réel (WebSocket de la page vidéo) ---------------------------
-
-export const LiveEvent = Schema.TaggedUnion({
-  /** Une étape du pipeline (ou un span Effect) change d'état. */
-  Step: {
-    kind: Schema.String,
-    status: EnrichmentStatus,
-    at: Schema.DateTimeUtcFromString,
-  },
-  VideoChanged: { video: Video },
-  CommentAdded: { comment: Comment },
-  Presence: {
-    viewers: Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String, time: Seconds })),
-  },
-});
-export type LiveEvent = typeof LiveEvent.Type;

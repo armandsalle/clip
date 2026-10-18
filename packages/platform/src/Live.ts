@@ -7,7 +7,7 @@ import { LiveEvent } from "@clip/contract";
 export class Live extends Context.Service<
   Live,
   { publish(videoId: VideoId, event: LiveEvent): Effect.Effect<void> }
->()("@clip/api/Live") {
+>()("@clip/platform/Live") {
   static readonly layer = (namespace: DurableObjectNamespace) =>
     Layer.sync(Live, () => {
       const encode = Schema.encodeEffect(Schema.fromJsonString(LiveEvent));

@@ -13,7 +13,7 @@ export interface OutgoingEmail {
 export class Mailer extends Context.Service<
   Mailer,
   { readonly domain: string; send(email: OutgoingEmail): Effect.Effect<void, MailError> }
->()("@clip/api/Mailer") {
+>()("@clip/platform/Mailer") {
   static readonly layer = (binding: SendEmail, domain: string) =>
     Layer.succeed(
       Mailer,

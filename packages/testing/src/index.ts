@@ -2,6 +2,7 @@
 // enregistrés, IA factice. Utilisés par les tests des apps et des packages.
 import { Effect, Layer } from "effect";
 import { StreamUid } from "@clip/domain";
+import type { CommentNotification } from "@clip/contract";
 import {
   AdminKeys,
   Live,
@@ -9,8 +10,8 @@ import {
   Notifications,
   Pipeline,
   StreamVideos,
-  type CommentNotification,
   type OutgoingEmail,
+  RateLimits,
   Features,
   Summarizer,
   Transcriber,
@@ -78,4 +79,5 @@ export const TestPlatform = Layer.mergeAll(
   Features.layer({ ai: true, storyboard: false, chaos: 0 }),
   MailerTest,
   NotificationsTest,
+  RateLimits.layerUnlimited,
 );
