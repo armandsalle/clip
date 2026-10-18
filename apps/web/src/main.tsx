@@ -1,26 +1,24 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { VideoId } from "@clip/domain";
-import { Coulisses } from "./Coulisses.tsx";
-import { Home } from "./Home.tsx";
-import { useRoute } from "./util.ts";
-import { VideoPage } from "./VideoPage.tsx";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { RouterProvider } from "@tanstack/react-router";
+import { makeRouter } from "./router.tsx";
+import "./styles/tokens.css";
+import "./ui/ui.css";
 import "./styles.css";
 
-const App = () => {
-  const route = useRoute();
-  switch (route.page) {
-    case "home":
-      return <Home />;
-    case "video":
-      return <VideoPage key={route.id} id={VideoId.make(route.id)} />;
-    case "coulisses":
-      return <Coulisses key={route.id} id={VideoId.make(route.id)} />;
-  }
-};
+const queryClient = new QueryClient({
+  defaultOptions: {
+    // Le temps réel met le cache à jour : pas besoin de recharger au retour sur l'onglet.
+    queries: { staleTime: 30_000, refetchOnWindowFocus: false, retry: 1 },
+  },
+});
+const router = makeRouter(queryClient);
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <App />
+    <QueryClientProvider client={queryClient}>
+      <RouterProvider router={router} />
+    </QueryClientProvider>
   </StrictMode>,
 );

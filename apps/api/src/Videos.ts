@@ -11,7 +11,7 @@ import {
   type VideoId,
   type VideoNotFound,
 } from "@clip/domain";
-import { type IncomingReply, ReplyRejected } from "@clip/contract";
+import { type IncomingReply, ReplyRejected } from "@clip/contract/internal";
 import { extractReplyText, Live, StreamVideos, tokenFromAddress } from "@clip/platform";
 import { Store } from "@clip/db";
 

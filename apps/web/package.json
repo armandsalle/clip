@@ -3,11 +3,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "types": "cf workers types"
+    "types": "cf workers types",
+    "test": "vp test"
   },
   "dependencies": {
     "@clip/contract": "workspace:*",
     "@clip/domain": "workspace:*",
+    "@tanstack/react-form": "catalog:",
+    "@tanstack/react-query": "catalog:",
+    "@tanstack/react-router": "catalog:",
     "effect": "catalog:",
     "hls.js": "catalog:",
     "react": "catalog:",
@@ -17,6 +21,7 @@
   "devDependencies": {
     "@clip/config": "workspace:*",
     "@cloudflare/vite-plugin": "catalog:",
+    "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",

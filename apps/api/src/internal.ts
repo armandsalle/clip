@@ -1,6 +1,6 @@
 import { Effect, Layer } from "effect";
 import { RpcSerialization, RpcServer } from "effect/rpc";
-import { InternalRpcs } from "@clip/contract";
+import { InternalRpcs } from "@clip/contract/internal";
 import { INTERNAL_RPC_PATH, Live } from "@clip/platform";
 import { Videos } from "./Videos.ts";
 

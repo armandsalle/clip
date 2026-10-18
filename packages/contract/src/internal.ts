@@ -5,34 +5,17 @@ import {
   CommentId,
   InvalidTransition,
   OutOfRange,
-  Seconds,
   Video,
   VideoEvent,
   VideoId,
   VideoNotFound,
   VideoNotReady,
-  EnrichmentStatus,
 } from "@clip/domain";
+import { LiveEvent } from "./live.ts";
 
 // Contrat interne entre Workers. api est le seul écrivain des vidéos et des
 // commentaires : jobs lui demande d'appliquer un événement plutôt que d'écrire en base.
 // Les erreurs sont des Schemas : elles arrivent typées de l'autre côté de la RPC.
-
-/** Événements temps réel (WebSocket de la page vidéo). */
-export const LiveEvent = Schema.TaggedUnion({
-  /** Une étape du pipeline (ou un span Effect) change d'état. */
-  Step: {
-    kind: Schema.String,
-    status: EnrichmentStatus,
-    at: Schema.DateTimeUtcFromString,
-  },
-  VideoChanged: { video: Video },
-  CommentAdded: { comment: Comment },
-  Presence: {
-    viewers: Schema.Array(Schema.Struct({ id: Schema.String, name: Schema.String, time: Seconds })),
-  },
-});
-export type LiveEvent = typeof LiveEvent.Type;
 
 /** Message de la Queue `notifications` (api produit, jobs consomme). */
 export const CommentNotification = Schema.Struct({ videoId: VideoId, commentId: CommentId });

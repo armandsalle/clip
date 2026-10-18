@@ -2,7 +2,7 @@
 // enregistrés, IA factice. Utilisés par les tests des apps et des packages.
 import { Effect, Layer } from "effect";
 import { StreamUid } from "@clip/domain";
-import type { CommentNotification } from "@clip/contract";
+import type { CommentNotification } from "@clip/contract/internal";
 import {
   AdminKeys,
   Live,

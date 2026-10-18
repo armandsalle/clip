@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Comment, EnrichmentStatus, VideoId } from "@clip/domain";
 import type { LiveEvent, VideoView } from "@clip/contract";
-import { call, CallError } from "./api.ts";
+import { call, errorMessage } from "./api/client.ts";
 import { useLive, type Live } from "./live.ts";
 import { viewerName } from "./util.ts";
 
@@ -36,9 +36,7 @@ export const useVideo = (id: VideoId): VideoData => {
         setView(v);
         setError(null);
       })
-      .catch((e: unknown) =>
-        setError(e instanceof CallError ? e.message : "Chargement impossible."),
-      );
+      .catch((e: unknown) => setError(errorMessage(e)));
   }, [id]);
 
   const reload = useCallback(() => {

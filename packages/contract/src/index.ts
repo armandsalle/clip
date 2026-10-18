@@ -21,10 +21,11 @@ import {
 } from "@clip/domain";
 
 // Contrat public (HttpApi) partagé entre api et le front : le client typé en est dérivé.
-// Le contrat interne (RPC jobs → api) est dans internal.ts.
+// Le contrat interne (RPC jobs → api) est exporté à part (`@clip/contract/internal`) :
+// le front n'embarque pas effect/rpc.
 
 export * from "./enrichments.ts";
-export * from "./internal.ts";
+export * from "./live.ts";
 
 /** Lien d'admin : envoyé dans l'en-tête `x-clip-admin`. */
 const AdminHeaders = { "x-clip-admin": Schema.String };

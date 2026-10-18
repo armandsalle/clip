@@ -1,6 +1,6 @@
 import { Layer } from "effect";
 import { RpcTest } from "effect/rpc";
-import { InternalRpcs } from "@clip/contract";
+import { InternalRpcs } from "@clip/contract/internal";
 import { InternalApi } from "@clip/platform";
 import { VideosHandlers } from "./http.ts";
 import { InternalHandlers } from "./internal.ts";

@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import type { EnrichmentStatus, Expiry, VideoId } from "@clip/domain";
 import type { UpdateVideo, VideoView } from "@clip/contract";
-import { call } from "./api.ts";
+import { call } from "./api/client.ts";
 import { Panel } from "./Panel.tsx";
 import { Player } from "./Player.tsx";
-import { Logo, PencilIcon, stepDetail, stepState, Tile } from "./ui.tsx";
+import { Logo, PencilIcon } from "./ui/icons.tsx";
+import { stepDetail, stepState, Tile } from "./ui/steps.tsx";
 import { useVideo } from "./useVideo.ts";
-import { adminKeyFor, copy, formatTime, navigate, viewerName } from "./util.ts";
+import { Link } from "@tanstack/react-router";
+import { adminKeyFor, copy, formatTime, viewerName } from "./util.ts";
 
 const shareUrl = (id: string) => `${location.origin}/v/${id}`;
 const thumbBase = (url: string) => url.split("?")[0]!;
@@ -165,9 +167,9 @@ const Gone = ({ message }: { message: string }) => (
     </div>
     <div className="home-center">
       <h1 style={{ margin: 0, fontSize: 28, letterSpacing: "-0.03em" }}>{message}</h1>
-      <button className="btn primary" onClick={() => navigate("/")}>
+      <Link className="btn primary" to="/" style={{ textDecoration: "none" }}>
         Déposer une vidéo
-      </button>
+      </Link>
     </div>
   </div>
 );
@@ -252,9 +254,14 @@ const TopBar = ({
           </div>
           {viewers <= 1 ? "vous seul" : `${viewers} regardent`}
         </div>
-        <button className="btn" onClick={() => navigate(`/v/${video.id}/coulisses`)}>
+        <Link
+          className="btn"
+          to="/v/$id/coulisses"
+          params={{ id: video.id }}
+          style={{ textDecoration: "none" }}
+        >
           Coulisses
-        </button>
+        </Link>
         <button className="btn primary" onClick={onShare}>
           Partager
         </button>

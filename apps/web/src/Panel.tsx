@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import type { Comment, CommentId, EnrichmentStatus, VideoId } from "@clip/domain";
 import type { VideoView } from "@clip/contract";
-import { call } from "./api.ts";
-import { MailIcon } from "./ui.tsx";
+import { call } from "./api/client.ts";
+import { MailIcon } from "./ui/icons.tsx";
 import { formatAgo, formatTime, presenceColor, rememberViewerName, viewerName } from "./util.ts";
 
 type Tab = "summary" | "transcript" | "comments" | "qa";

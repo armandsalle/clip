@@ -1,11 +1,7 @@
 import { DateTime, Duration, Effect, Option, Ref, Schedule, Schema } from "effect";
 import { EnrichmentStatus, VideoId, expiresAt, type EnrichmentKind } from "@clip/domain";
-import {
-  type CommentNotification,
-  decodeResult,
-  SummaryResult,
-  TranscriptResult,
-} from "@clip/contract";
+import { decodeResult, SummaryResult, TranscriptResult } from "@clip/contract";
+import type { CommentNotification } from "@clip/contract/internal";
 import {
   AiError,
   commentsEmail,

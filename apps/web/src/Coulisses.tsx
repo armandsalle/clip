@@ -2,9 +2,10 @@ import { useEffect, useState } from "react";
 import type { EnrichmentStatus, VideoId } from "@clip/domain";
 import type { LiveEvent } from "@clip/contract";
 import type { Received } from "./live.ts";
-import { stepDetail, stepState, Tile, type StepState } from "./ui.tsx";
+import { stepDetail, stepState, Tile, type StepState } from "./ui/steps.tsx";
 import { useVideo } from "./useVideo.ts";
-import { formatTime, navigate } from "./util.ts";
+import { Link } from "@tanstack/react-router";
+import { formatTime } from "./util.ts";
 
 // Coulisses : l'écran projeté pendant la démo. Chaque tuile suit en direct une
 // étape du Workflow (les événements `Step` publiés par le pipeline Effect via le
@@ -132,17 +133,9 @@ export const Coulisses = ({ id }: { id: VideoId }) => {
       <header className="coulisses-head">
         <div>
           <div className="eyebrow">
-            <a
-              href={`/v/${id}`}
-              className="faint"
-              style={{ textDecoration: "none" }}
-              onClick={(e) => {
-                e.preventDefault();
-                navigate(`/v/${id}`);
-              }}
-            >
+            <Link to="/v/$id" params={{ id }} className="faint" style={{ textDecoration: "none" }}>
               ← vidéo
-            </a>{" "}
+            </Link>{" "}
             · Coulisses
           </div>
           <h1>{view?.video.title ?? "Vidéo sans titre"}</h1>

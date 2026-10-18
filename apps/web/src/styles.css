@@ -1,27 +1,4 @@
-/* Clip : salle de projection éteinte. La couleur ne sert qu'aux états. */
-:root {
-  color-scheme: dark;
-  --clip-bg: #0b0b0c;
-  --clip-surface: #141416;
-  --clip-raised: #1e1e21;
-  --clip-border: #2a2a2e;
-  --clip-border-strong: #3a3a40;
-  --clip-fg: #ededef;
-  --clip-fg-2: #8f8f96;
-  --clip-fg-3: #5e5e66;
-  --clip-running: #4c8dff;
-  --clip-success: #3dd68c;
-  --clip-failed: #ff6369;
-  --clip-retry: #ffb224;
-  --clip-disabled: #4a4a50;
-  --clip-presence-1: #f4a7b9;
-  --clip-presence-2: #a7c7f4;
-  --clip-presence-3: #b9e4a1;
-  --clip-presence-4: #e9d29a;
-  --font-sans: "Geist", system-ui, sans-serif;
-  --font-mono: "Geist Mono", ui-monospace, monospace;
-}
-
+/* Styles des écrans v1 : remplacés écran par écran par les composants de ui/. */
 * {
   box-sizing: border-box;
 }

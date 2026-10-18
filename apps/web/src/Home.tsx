@@ -1,9 +1,10 @@
 import { useRef, useState } from "react";
 import * as tus from "tus-js-client";
 import type { VideoId } from "@clip/domain";
-import { call } from "./api.ts";
-import { Logo, UploadIcon } from "./ui.tsx";
-import { formatBytes, navigate, rememberAdminKey } from "./util.ts";
+import { call } from "./api/client.ts";
+import { Logo, UploadIcon } from "./ui/icons.tsx";
+import { useNavigate } from "@tanstack/react-router";
+import { formatBytes, rememberAdminKey } from "./util.ts";
 
 type State =
   | { readonly step: "idle"; readonly error?: string }
@@ -70,6 +71,7 @@ const upload = (
 const MAX_BYTES = 2e9;
 
 export const Home = () => {
+  const navigate = useNavigate();
   const [state, setState] = useState<State>({ step: "idle" });
   const [over, setOver] = useState(false);
   const [email, setEmail] = useState("");
@@ -139,7 +141,7 @@ export const Home = () => {
           // stockage indisponible
         }
       }
-      navigate(`/v/${videoId}`);
+      void navigate({ to: "/v/$id", params: { id: videoId } });
     } catch (error) {
       setState({
         step: "idle",

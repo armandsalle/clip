@@ -1,7 +1,7 @@
 import { Context, Effect, Layer } from "effect";
 import { FetchHttpClient } from "effect/http";
 import { RpcClient, type RpcClientError, RpcSerialization } from "effect/rpc";
-import { InternalRpcs } from "@clip/contract";
+import { InternalRpcs } from "@clip/contract/internal";
 import { Live } from "./Live.ts";
 
 // Client de la RPC interne (jobs → api), transportée par un service binding : la

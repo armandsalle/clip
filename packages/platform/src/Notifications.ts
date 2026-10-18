@@ -1,5 +1,5 @@
 import { Context, Effect, Layer, Schema } from "effect";
-import { CommentNotification } from "@clip/contract";
+import { CommentNotification } from "@clip/contract/internal";
 
 // Notifications de commentaires (Queue) ---------------------------------------------------
 

@@ -1,37 +1,3 @@
-import { useEffect, useState } from "react";
-
-// Navigation --------------------------------------------------------------------
-
-export type Route =
-  | { readonly page: "home" }
-  | { readonly page: "video"; readonly id: string }
-  | { readonly page: "coulisses"; readonly id: string };
-
-const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
-
-export const parseRoute = (path: string): Route => {
-  const coulisses = new RegExp(`^/v/(${UUID})/coulisses/?$`).exec(path);
-  if (coulisses) return { page: "coulisses", id: coulisses[1]! };
-  const video = new RegExp(`^/v/(${UUID})/?$`).exec(path);
-  if (video) return { page: "video", id: video[1]! };
-  return { page: "home" };
-};
-
-export const navigate = (to: string) => {
-  history.pushState(null, "", to);
-  dispatchEvent(new PopStateEvent("popstate"));
-};
-
-export const useRoute = (): Route => {
-  const [route, setRoute] = useState(() => parseRoute(location.pathname));
-  useEffect(() => {
-    const update = () => setRoute(parseRoute(location.pathname));
-    addEventListener("popstate", update);
-    return () => removeEventListener("popstate", update);
-  }, []);
-  return route;
-};
-
 // Stockage local (tolérant : navigation privée, stockage bloqué) ------------------
 
 const read = (key: string): string | null => {
