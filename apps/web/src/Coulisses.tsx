@@ -28,7 +28,12 @@ const describe = (event: LiveEvent): { name: string; detail: string; tone: strin
         case "Running":
           return {
             name,
-            detail: s.attempt > 1 ? `nouvelle tentative ${s.attempt}/3` : "démarre",
+            detail:
+              s.attempt > 1
+                ? `nouvelle tentative ${s.attempt}/3`
+                : s.progress !== undefined
+                  ? `${Math.floor(s.progress)} %`
+                  : "démarre",
             tone,
           };
         case "Done":
@@ -73,11 +78,13 @@ const Branch = ({
   status,
   flash,
   via,
+  now,
 }: {
   label: string;
   status: EnrichmentStatus | undefined;
   flash: number | undefined;
   via: string;
+  now: number;
 }) => {
   const state = stepState(status);
   return (
@@ -86,7 +93,7 @@ const Branch = ({
       <div className="branch-label">
         <span className={state === "pending" || state === "disabled" ? "muted" : ""}>{label}</span>
         <small className={state === "done" ? "faint" : stateClass(state)}>
-          {stepDetail(status)}
+          {stepDetail(status, now)}
           {state === "done" && ` · ${via}`}
         </small>
       </div>
@@ -108,8 +115,16 @@ export const Coulisses = ({ id }: { id: VideoId }) => {
   // Le serveur ne marque la vidéo qu'à l'encodage : le premier événement du pipeline
   // sur l'encodage prouve que le fichier est arrivé.
   const uploaded = status !== "Uploading" || steps.encoding !== undefined;
+  // Durée totale « dépôt → tout fini » : figée quand plus aucune étape n'est en cours.
+  const kinds = Object.values(steps);
+  const finished =
+    status === "Ready" &&
+    kinds.length > 0 &&
+    kinds.every((s) => s !== undefined && stepState(s) !== "running" && stepState(s) !== "pending");
+  const lastEvent = live.events[0]?.receivedAt.getTime();
+  const end = finished && lastEvent !== undefined ? lastEvent : now;
   const elapsed = view
-    ? Math.max(0, Math.floor((now - view.video.createdAt.epochMilliseconds) / 1000))
+    ? Math.max(0, Math.floor((end - view.video.createdAt.epochMilliseconds) / 1000))
     : 0;
 
   return (
@@ -147,7 +162,7 @@ export const Coulisses = ({ id }: { id: VideoId }) => {
           </div>
           <div className="counter">
             <strong>{formatTime(elapsed).padStart(5, "0")}</strong>
-            <span>workflow</span>
+            <span>{finished ? "durée totale" : "workflow"}</span>
           </div>
         </div>
       </header>
@@ -176,7 +191,13 @@ export const Coulisses = ({ id }: { id: VideoId }) => {
                 flashKey={flashes.encoding}
               />
               encodage
-              <small>{status === "Ready" ? "lisible · Stream" : "Stream"}</small>
+              <small>
+                {steps.encoding
+                  ? `${stepDetail(steps.encoding, now)} · Stream`
+                  : status === "Ready"
+                    ? "lisible · Stream"
+                    : "Stream"}
+              </small>
             </div>
             <div className="graph-arrow">→</div>
             <div className="branches">
@@ -186,14 +207,26 @@ export const Coulisses = ({ id }: { id: VideoId }) => {
                   status={steps.thumbnail}
                   flash={flashes.thumbnail}
                   via="Stream"
+                  now={now}
                 />
               </div>
               <div className="branch">
                 <Branch
+                  label="piste audio"
+                  status={steps.audio}
+                  flash={flashes.audio}
+                  via="Stream"
+                  now={now}
+                />
+                <span className="graph-arrow" style={{ paddingTop: 0 }}>
+                  →
+                </span>
+                <Branch
                   label="transcription"
                   status={steps.transcript}
                   flash={flashes.transcript}
-                  via="Whisper"
+                  via="Nova-3"
+                  now={now}
                 />
                 <span className="graph-arrow" style={{ paddingTop: 0 }}>
                   →
@@ -203,15 +236,26 @@ export const Coulisses = ({ id }: { id: VideoId }) => {
                   status={steps.summary}
                   flash={flashes.summary}
                   via="Llama"
+                  now={now}
                 />
                 <span className="graph-arrow" style={{ paddingTop: 0 }}>
                   →
                 </span>
                 <Branch
-                  label="index Q&R"
-                  status={steps.index}
-                  flash={flashes.index}
-                  via="AI Search"
+                  label="sous-titres"
+                  status={steps.captions}
+                  flash={flashes.captions}
+                  via="Stream"
+                  now={now}
+                />
+              </div>
+              <div className="branch">
+                <Branch
+                  label="qualité HD"
+                  status={steps.hd}
+                  flash={flashes.hd}
+                  via="Stream"
+                  now={now}
                 />
               </div>
               <div className="branch">
@@ -220,6 +264,7 @@ export const Coulisses = ({ id }: { id: VideoId }) => {
                   status={steps.suggestions}
                   flash={flashes.suggestions}
                   via="3 images"
+                  now={now}
                 />
               </div>
               <div className="branch">
@@ -228,6 +273,7 @@ export const Coulisses = ({ id }: { id: VideoId }) => {
                   status={steps.storyboard}
                   flash={flashes.storyboard}
                   via="Container"
+                  now={now}
                 />
               </div>
               <div className="branch">
@@ -236,6 +282,7 @@ export const Coulisses = ({ id }: { id: VideoId }) => {
                   status={steps.shareCard}
                   flash={flashes.shareCard}
                   via="Images"
+                  now={now}
                 />
               </div>
             </div>

@@ -12,6 +12,8 @@ import { formatTime, presenceColor } from "./util.ts";
 export const Player = ({
   src,
   poster,
+  captions,
+  captionsLang,
   videoRef,
   duration: knownDuration,
   comments,
@@ -22,6 +24,9 @@ export const Player = ({
 }: {
   src: string;
   poster: string;
+  /** URL du VTT (intervenants), servi par le Worker ; absent tant qu'il n'y a pas de transcription. */
+  captions?: string | undefined;
+  captionsLang?: string | undefined;
   videoRef: RefObject<HTMLVideoElement | null>;
   duration: number;
   comments: ReadonlyArray<Comment>;
@@ -49,7 +54,14 @@ export const Player = ({
         video.src = src;
         return;
       }
-      const hls = new Hls();
+      // Qualité : on démarre sur la meilleure qualité adaptée à la taille du lecteur,
+      // au lieu de la plus basse ; l'ABR redescend si la connexion ne suit pas.
+      // Les sous-titres viennent de la piste <track> (VTT du Worker), pas du manifeste.
+      const hls = new Hls({ capLevelToPlayerSize: true });
+      hls.subtitleDisplay = false;
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        hls.startLevel = hls.levels.length - 1;
+      });
       hls.loadSource(src);
       hls.attachMedia(video);
       destroy = () => hls.destroy();
@@ -87,7 +99,18 @@ export const Player = ({
           setTime(e.currentTarget.currentTime);
           onTime(e.currentTarget.currentTime);
         }}
-      />
+      >
+        {captions && (
+          <track
+            key={captions}
+            kind="subtitles"
+            src={captions}
+            srcLang={captionsLang ?? "fr"}
+            label="Sous-titres"
+            default
+          />
+        )}
+      </video>
       <div className="controls">
         <div className="track" onClick={(e) => seekTo(e.clientX, e.currentTarget)}>
           {viewers

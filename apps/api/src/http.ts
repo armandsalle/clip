@@ -23,7 +23,10 @@ const KINDS = EnrichmentKind.literals;
 // Résultats d'enrichissement : stockés en JSONB, relus avec tolérance (une étape
 // pas encore passée donne simplement une valeur vide).
 const SummaryResult = Schema.Struct({ summary: Schema.String, chapters: Schema.Array(Chapter) });
-const TranscriptResult = Schema.Struct({ segments: Schema.Array(TranscriptSegment) });
+const TranscriptResult = Schema.Struct({
+  language: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  segments: Schema.Array(TranscriptSegment),
+});
 const SuggestionsResult = Schema.Struct({ times: Schema.Array(Schema.Finite) });
 
 const decodeOption = <S extends Schema.Top & { readonly DecodingServices: never }>(schema: S) => {
@@ -64,6 +67,10 @@ export const VideosHandlers = HttpApiBuilder.group(
         Option.fromNullishOr(byKind.get("summary")?.result),
         summaryOf,
       );
+      const stored = Option.flatMap(
+        Option.fromNullishOr(byKind.get("transcript")?.result),
+        transcriptOf,
+      );
       return new VideoView({
         video,
         playback: Option.match(details, {
@@ -78,11 +85,9 @@ export const VideosHandlers = HttpApiBuilder.group(
         ) as VideoView["enrichments"],
         summary: Option.match(summary, { onNone: () => null, onSome: (s) => s.summary }),
         chapters: Option.match(summary, { onNone: () => [], onSome: (s) => s.chapters }),
+        language: Option.getOrNull(Option.flatMap(stored, (t) => Option.fromNullishOr(t.language))),
         transcript: Option.getOrElse(
-          Option.map(
-            Option.flatMap(Option.fromNullishOr(byKind.get("transcript")?.result), transcriptOf),
-            (t) => t.segments,
-          ),
+          Option.map(stored, (t) => t.segments),
           () => [],
         ),
         thumbnailSuggestions: Option.getOrElse(

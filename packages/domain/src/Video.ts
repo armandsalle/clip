@@ -69,7 +69,13 @@ export const videoFields = (v: Video) => ({
 
 export const EnrichmentKind = Schema.Literals([
   "thumbnail",
+  /** Piste audio préparée par Stream (pour la transcription). */
+  "audio",
   "transcript",
+  /** Sous-titres (VTT avec intervenants) renvoyés à Stream. */
+  "captions",
+  /** Encodage des qualités hautes, qui continue après Ready. */
+  "hd",
   "summary",
   "suggestions",
   "storyboard",
@@ -80,7 +86,13 @@ export type EnrichmentKind = typeof EnrichmentKind.Type;
 
 export const EnrichmentStatus = Schema.TaggedUnion({
   Pending: {},
-  Running: { attempt: Schema.Int },
+  Running: {
+    attempt: Schema.Int,
+    // Optionnels pour relire les états enregistrés avant leur ajout.
+    startedAt: Schema.optionalKey(Schema.DateTimeUtcFromString),
+    /** Avancement 0–100, quand l'étape le connaît (encodage HD). */
+    progress: Schema.optionalKey(Schema.Finite),
+  },
   Done: { durationMs: Schema.Int },
   Failed: { error: Schema.String, attempts: Schema.Int },
   /** Coupé par un feature flag (ex. IA désactivée). */

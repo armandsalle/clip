@@ -31,7 +31,10 @@ export const expiry = pgEnum("expiry", ["never", "1d", "7d", "30d"]);
 
 export const enrichmentKind = pgEnum("enrichment_kind", [
   "thumbnail",
+  "audio",
   "transcript",
+  "captions",
+  "hd",
   "summary",
   "suggestions",
   "storyboard",

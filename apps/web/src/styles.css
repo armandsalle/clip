@@ -1283,3 +1283,60 @@ button {
     grid-column: 2;
   }
 }
+
+/* Intervenants (transcription) */
+.speakers {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.speakers-bar {
+  display: flex;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  gap: 2px;
+}
+.speakers-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.speaker-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--clip-border, #2a2a30);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.speaker-chip.active {
+  border-color: currentColor;
+}
+.speaker-chip i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.segment .speaker {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+/* Badge HD (encodage des qualités hautes en cours) */
+.hd-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  color: var(--clip-running, #e0af68);
+  border: 1px solid color-mix(in oklab, var(--clip-running, #e0af68) 50%, transparent);
+}

@@ -110,6 +110,11 @@ const Summary = ({
     );
   return (
     <div className="panel-body summary">
+      {view.language && (
+        <div className="faint" style={{ fontSize: 12 }}>
+          Langue détectée : {languageName(view.language)}
+        </div>
+      )}
       <p>{view.summary}</p>
       {view.chapters.length > 0 && (
         <>
@@ -138,6 +143,7 @@ const Transcript = ({
   onSeek: (t: number) => void;
 }) => {
   const current = useRef<HTMLButtonElement>(null);
+  const [only, setOnly] = useState<number | null>(null);
   useEffect(() => {
     // Bloc explicite : scrollIntoView renvoie une Promise dans les navigateurs récents,
     // et React prendrait toute valeur renvoyée pour une fonction de nettoyage.
@@ -152,9 +158,40 @@ const Transcript = ({
         hint="La transcription arrive au fil de l'eau ; cliquez sur une phrase pour y aller."
       />
     );
+  const speakers = speakingTime(view.transcript);
+  const segments =
+    only === null ? view.transcript : view.transcript.filter((s) => (s.speaker ?? null) === only);
   return (
     <div className="panel-body">
-      {view.transcript.map((s) => {
+      {speakers.length > 1 && (
+        <div className="speakers">
+          <div className="speakers-bar">
+            {speakers.map((sp) => (
+              <span
+                key={sp.speaker}
+                style={{ flexGrow: sp.seconds, background: speakerColor(sp.speaker) }}
+                title={`${speakerName(sp.speaker)} · ${formatTime(sp.seconds)}`}
+              />
+            ))}
+          </div>
+          <div className="speakers-legend">
+            {speakers.map((sp) => (
+              <button
+                key={sp.speaker}
+                className={`speaker-chip ${only === sp.speaker ? "active" : ""}`}
+                onClick={() => setOnly(only === sp.speaker ? null : sp.speaker)}
+              >
+                <i style={{ background: speakerColor(sp.speaker) }} />
+                {speakerName(sp.speaker)}
+                <span className="faint">
+                  {formatTime(sp.seconds)} · {Math.round(sp.share * 100)} %
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {segments.map((s) => {
         const active = time >= s.start && time < s.end;
         return (
           <button
@@ -164,12 +201,43 @@ const Transcript = ({
             onClick={() => onSeek(s.start)}
           >
             <span className="mono">{formatTime(s.start)}</span>
-            {s.text}
+            <span>
+              {s.speaker != null && speakers.length > 1 && (
+                <strong className="speaker" style={{ color: speakerColor(s.speaker) }}>
+                  {speakerName(s.speaker)}
+                </strong>
+              )}
+              {s.text}
+            </span>
           </button>
         );
       })}
     </div>
   );
+};
+
+/** Temps de parole par intervenant, calculé à partir des segments. */
+const speakingTime = (segments: VideoView["transcript"]) => {
+  const totals = new Map<number, number>();
+  for (const s of segments)
+    if (s.speaker != null)
+      totals.set(s.speaker, (totals.get(s.speaker) ?? 0) + Math.max(0, s.end - s.start));
+  const all = [...totals.values()].reduce((a, b) => a + b, 0) || 1;
+  return [...totals.entries()]
+    .sort(([a], [b]) => a - b)
+    .map(([speaker, seconds]) => ({ speaker, seconds, share: seconds / all }));
+};
+
+const SPEAKER_COLORS = ["#7aa2f7", "#e0af68", "#9ece6a", "#f7768e", "#bb9af7", "#2ac3de"];
+const speakerColor = (speaker: number) => SPEAKER_COLORS[speaker % SPEAKER_COLORS.length]!;
+const speakerName = (speaker: number) => `Intervenant ${speaker + 1}`;
+
+const languageName = (code: string) => {
+  try {
+    return new Intl.DisplayNames(["fr"], { type: "language" }).of(code) ?? code;
+  } catch {
+    return code;
+  }
 };
 
 const Comments = ({

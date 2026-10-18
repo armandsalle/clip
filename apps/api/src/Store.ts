@@ -7,7 +7,7 @@ import {
   Video,
   VideoNotFound,
   type EnrichmentKind,
-  type VideoId,
+  VideoId,
 } from "@clip/domain";
 import { Db } from "./db/Db.ts";
 import { comments, enrichments, videos } from "./db/schema.ts";
@@ -26,6 +26,8 @@ export class Store extends Context.Service<
   {
     createVideo(video: Video, adminKeyHash: string, ownerEmail: string | null): Effect.Effect<void>;
     getVideo(id: VideoId): Effect.Effect<Video, VideoNotFound>;
+    /** Vidéo associée à un identifiant Stream (webhook). */
+    findByStreamUid(uid: string): Effect.Effect<VideoId | null>;
     saveVideo(video: Video): Effect.Effect<void>;
     /** Vérifie le secret d'admin (déjà haché) d'une vidéo. */
     checkAdmin(id: VideoId, adminKeyHash: string): Effect.Effect<void, VideoNotFound | Forbidden>;
@@ -53,6 +55,10 @@ export class Store extends Context.Service<
       createVideo: (video, hash, email) =>
         Effect.sync(() => void vids.set(video.id, { video, hash, email })),
       getVideo: (id) => Effect.map(find(id), (r) => r.video),
+      findByStreamUid: (uid) =>
+        Effect.sync(
+          () => [...vids.values()].find((r) => r.video.streamUid === uid)?.video.id ?? null,
+        ),
       saveVideo: (video) =>
         Effect.sync(() => {
           const r = vids.get(video.id);
@@ -101,6 +107,7 @@ export class Store extends Context.Service<
       Store.of({
         createVideo: call("createVideo"),
         getVideo: call("getVideo"),
+        findByStreamUid: call("findByStreamUid"),
         saveVideo: call("saveVideo"),
         checkAdmin: call("checkAdmin"),
         ownerEmail: call("ownerEmail"),
@@ -180,6 +187,14 @@ export class Store extends Context.Service<
             .update(videos)
             .set({ ...cols, updatedAt: sql`now()` })
             .where(eq(videos.id, video.id));
+        }, Effect.orDie),
+
+        findByStreamUid: Effect.fn("Store.findByStreamUid")(function* (uid) {
+          const rows = yield* db
+            .select({ id: videos.id })
+            .from(videos)
+            .where(eq(videos.streamUid, uid));
+          return rows[0] ? VideoId.make(rows[0].id) : null;
         }, Effect.orDie),
 
         checkAdmin: Effect.fn("Store.checkAdmin")(function* (id, hash) {

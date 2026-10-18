@@ -5,7 +5,10 @@ import { Features } from "../../src/pipeline.ts";
 import { AdminKeys, Live, Pipeline, StreamVideos } from "../../src/Platform.ts";
 import { Store } from "../../src/Store.ts";
 
-/** Stream de test : chaque vidéo est encodée (120 s) dès sa création. */
+/** Sous-titres envoyés au Stream de test (pour les assertions). */
+export const captionsUploaded: Array<{ uid: string; language: string; vtt: string }> = [];
+
+/** Stream de test : chaque vidéo est lisible (120 s) dès sa création, HD à 94 %. */
 export const StreamTest = Layer.succeed(
   StreamVideos,
   StreamVideos.of({
@@ -22,9 +25,15 @@ export const StreamTest = Layer.succeed(
         duration: 120,
         hls: "https://hls.test",
         thumbnail: "https://thumb.test",
+        encoding: true,
+        progress: 94,
       }),
     setThumbnail: () => Effect.void,
-    audio: () => Effect.succeed(new Uint8Array()),
+    requestAudio: () => Effect.void,
+    audioReady: () => Effect.succeed(true),
+    audio: () => Effect.succeed({ body: new Blob([]).stream(), contentType: "audio/mp4" }),
+    uploadCaptions: (uid, language, vtt) =>
+      Effect.sync(() => void captionsUploaded.push({ uid, language, vtt })),
     remove: () => Effect.void,
   }),
 );

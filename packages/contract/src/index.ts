@@ -28,6 +28,8 @@ export const TranscriptSegment = Schema.Struct({
   start: Seconds,
   end: Seconds,
   text: Schema.String,
+  /** Intervenant (0, 1, …) détecté par la diarisation ; absent des anciennes transcriptions. */
+  speaker: Schema.optionalKey(Schema.NullOr(Schema.Int)),
 });
 
 export const Chapter = Schema.Struct({ time: Seconds, title: Schema.String });
@@ -42,6 +44,8 @@ export class VideoView extends Schema.Class<VideoView, { readonly brand: unique 
   summary: Schema.NullOr(Schema.String),
   chapters: Schema.Array(Chapter),
   transcript: Schema.Array(TranscriptSegment),
+  /** Langue détectée (code ISO, ex. « fr »). */
+  language: Schema.NullOr(Schema.String),
   thumbnailSuggestions: Schema.Array(Seconds),
 }) {}
 

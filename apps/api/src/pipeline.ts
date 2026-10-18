@@ -37,6 +37,9 @@ const publishStep = Effect.fn("pipeline.publishStep")(function* (
   yield* live.publish(videoId, { _tag: "Step", kind, status, at: yield* DateTime.now });
 });
 
+const elapsedMs = (from: DateTime.Utc, to: DateTime.Utc) =>
+  Math.round(Duration.toMillis(DateTime.distance(from, to)));
+
 /** Encodage : `ready` (vidéo passée en Ready), `waiting` ou `failed`. */
 export const checkEncoding = Effect.fn("pipeline.checkEncoding")(function* (videoId: VideoId) {
   const store = yield* Store;
@@ -51,7 +54,11 @@ export const checkEncoding = Effect.fn("pipeline.checkEncoding")(function* (vide
       ? ({ _tag: "Encoded", duration: details.duration } as const)
       : null;
   if (event === null) {
-    yield* publishStep(videoId, "encoding", EnrichmentStatus.cases.Running.make({ attempt: 1 }));
+    yield* publishStep(
+      videoId,
+      "encoding",
+      EnrichmentStatus.cases.Running.make({ attempt: 1, startedAt: video.createdAt }),
+    );
     return "waiting" as const;
   }
   const next = yield* Effect.fromResult(decide(video, event, now)).pipe(Effect.orDie);
@@ -61,7 +68,7 @@ export const checkEncoding = Effect.fn("pipeline.checkEncoding")(function* (vide
     videoId,
     "encoding",
     event._tag === "Encoded"
-      ? EnrichmentStatus.cases.Done.make({ durationMs: 0 })
+      ? EnrichmentStatus.cases.Done.make({ durationMs: elapsedMs(video.createdAt, now) })
       : EnrichmentStatus.cases.Failed.make({ error: event.reason, attempts: 1 }),
   );
   return event._tag === "Encoded" ? ("ready" as const) : ("failed" as const);
@@ -84,7 +91,7 @@ const enrichment = <A, E, R>(
 
     const attempt = Effect.gen(function* () {
       const n = yield* Ref.updateAndGet(attempts, (a) => a + 1);
-      const running = EnrichmentStatus.cases.Running.make({ attempt: n });
+      const running = EnrichmentStatus.cases.Running.make({ attempt: n, startedAt });
       yield* store.setEnrichment(videoId, kind, running);
       yield* publishStep(videoId, kind, running);
       // Mode chaos : échecs aléatoires pour montrer les retries en démo.
@@ -100,9 +107,7 @@ const enrichment = <A, E, R>(
         onSuccess: (result) =>
           Effect.gen(function* () {
             const done = EnrichmentStatus.cases.Done.make({
-              durationMs: Math.round(
-                Duration.toMillis(DateTime.distance(startedAt, yield* DateTime.now)),
-              ),
+              durationMs: elapsedMs(startedAt, yield* DateTime.now),
             });
             yield* store.setEnrichment(videoId, kind, done, result);
             yield* publishStep(videoId, kind, done);
@@ -142,6 +147,76 @@ const readyVideo = Effect.fn("pipeline.readyVideo")(function* (videoId: VideoId)
 export const thumbnail = (videoId: VideoId) =>
   enrichment(videoId, "thumbnail", Effect.succeed({ source: "stream" }));
 
+/**
+ * Étapes « à attente » (audio, HD) : le Workflow les rappelle avec `step.sleep`
+ * entre deux vérifications, plutôt qu'un sondage enfermé dans une seule étape.
+ * `startedAtMs` est fixé au premier appel pour un chrono stable.
+ */
+const waitingStep = Effect.fn("pipeline.waitingStep")(function* (
+  videoId: VideoId,
+  kind: EnrichmentKind,
+  startedAtMs: number,
+  state: { readonly done: boolean; readonly progress?: number },
+) {
+  const store = yield* Store;
+  const startedAt = DateTime.makeUnsafe(startedAtMs);
+  const status = state.done
+    ? EnrichmentStatus.cases.Done.make({ durationMs: elapsedMs(startedAt, yield* DateTime.now) })
+    : EnrichmentStatus.cases.Running.make({
+        attempt: 1,
+        startedAt,
+        ...(state.progress === undefined ? {} : { progress: state.progress }),
+      });
+  yield* store.setEnrichment(videoId, kind, status);
+  yield* publishStep(videoId, kind, status);
+  return state.done ? ("done" as const) : ("waiting" as const);
+});
+
+/** Demande la piste audio à Stream dès que la vidéo est prête. */
+export const requestAudio = Effect.fn("pipeline.requestAudio")(function* (videoId: VideoId) {
+  if (!(yield* Features).ai) return yield* disabled(videoId, "audio");
+  const { video } = yield* readyVideo(videoId).pipe(Effect.orDie);
+  yield* StreamVideos.use((s) => s.requestAudio(video.streamUid));
+  return yield* DateTime.now.pipe(Effect.map((d) => d.epochMilliseconds));
+});
+
+export const checkAudio = Effect.fn("pipeline.checkAudio")(function* (
+  videoId: VideoId,
+  startedAtMs: number,
+) {
+  const { video } = yield* readyVideo(videoId).pipe(Effect.orDie);
+  const done = yield* StreamVideos.use((s) => s.audioReady(video.streamUid));
+  return yield* waitingStep(videoId, "audio", startedAtMs, { done });
+});
+
+/** Encodage des qualités hautes, qui continue après Ready. */
+export const checkHd = Effect.fn("pipeline.checkHd")(function* (
+  videoId: VideoId,
+  startedAtMs: number,
+) {
+  const { video } = yield* readyVideo(videoId).pipe(Effect.orDie);
+  const details = yield* StreamVideos.use((s) => s.details(video.streamUid));
+  return yield* waitingStep(videoId, "hd", startedAtMs, {
+    done: !details.encoding || details.progress >= 100,
+    progress: details.progress,
+  });
+});
+
+const TranscriptResult = Schema.Struct({
+  language: Schema.optionalKey(Schema.NullOr(Schema.String)),
+  segments: Schema.Array(TranscriptSegment),
+});
+
+const storedTranscript = Effect.fn("pipeline.storedTranscript")(function* (videoId: VideoId) {
+  const records = yield* Store.use((s) => s.enrichments(videoId));
+  const raw = records.find((r) => r.kind === "transcript")?.result;
+  return Option.getOrElse(Schema.decodeUnknownOption(TranscriptResult)(raw), () => ({
+    language: null,
+    segments: [],
+  }));
+});
+
+/** Transcription Deepgram Nova-3 : l'audio Stream est transmis en flux. */
 export const transcript = (videoId: VideoId) =>
   Effect.gen(function* () {
     if (!(yield* Features).ai) return yield* disabled(videoId, "transcript");
@@ -150,23 +225,61 @@ export const transcript = (videoId: VideoId) =>
       "transcript",
       Effect.gen(function* () {
         const { video, duration } = yield* readyVideo(videoId);
-        // Stream prépare la piste audio à la demande : on la sonde jusqu'à 2 minutes.
-        const audio = yield* StreamVideos.use((s) => s.audio(video.streamUid)).pipe(
-          Effect.repeat({
-            until: (a) => a !== null,
-            schedule: Schedule.spaced("3 seconds"),
-            times: 40,
-          }),
-        );
-        if (audio === null)
+        const audio = yield* StreamVideos.use((s) => s.audio(video.streamUid));
+        if (audio === null) {
           return yield* new StepFailed({ kind: "transcript", message: "audio pas encore prêt" });
-        const segments = yield* Transcriber.use((t) => t.transcribe(audio, duration));
-        return { segments };
+        }
+        return yield* Transcriber.use((t) => t.transcribe(audio, duration));
       }),
     );
   });
 
-const TranscriptResult = Schema.Struct({ segments: Schema.Array(TranscriptSegment) });
+const vttTime = (seconds: number) => {
+  const ms = Math.round(seconds * 1000);
+  const h = Math.floor(ms / 3_600_000);
+  const m = Math.floor((ms % 3_600_000) / 60_000);
+  const s = Math.floor((ms % 60_000) / 1000);
+  const pad = (n: number, w = 2) => String(n).padStart(w, "0");
+  return `${pad(h)}:${pad(m)}:${pad(s)}.${pad(ms % 1000, 3)}`;
+};
+
+/** WebVTT avec les intervenants (`<v Intervenant 1>`), lus par les lecteurs HLS. */
+export const toVtt = (segments: ReadonlyArray<typeof TranscriptSegment.Type>): string =>
+  [
+    "WEBVTT",
+    ...segments.map(
+      (s, i) =>
+        `${i + 1}\n${vttTime(s.start)} --> ${vttTime(Math.max(s.end, s.start + 0.5))}\n${
+          s.speaker == null ? "" : `<v Intervenant ${s.speaker + 1}>`
+        }${s.text}`,
+    ),
+  ].join("\n\n");
+
+/** VTT de la transcription enregistrée, ou `null` s'il n'y en a pas encore. */
+export const captionsVtt = Effect.fn("pipeline.captionsVtt")(function* (videoId: VideoId) {
+  const { segments } = yield* storedTranscript(videoId);
+  return segments.length === 0 ? null : toVtt(segments);
+});
+
+/** Sous-titres renvoyés à Stream : ils apparaissent dans le lecteur et le manifeste. */
+export const captions = (videoId: VideoId) =>
+  Effect.gen(function* () {
+    if (!(yield* Features).ai) return yield* disabled(videoId, "captions");
+    return yield* enrichment(
+      videoId,
+      "captions",
+      Effect.gen(function* () {
+        const { video } = yield* readyVideo(videoId);
+        const { language, segments } = yield* storedTranscript(videoId);
+        if (segments.length === 0) {
+          return yield* new StepFailed({ kind: "captions", message: "pas de transcription" });
+        }
+        const lang = language ?? "fr";
+        yield* StreamVideos.use((s) => s.uploadCaptions(video.streamUid, lang, toVtt(segments)));
+        return { language: lang, cues: segments.length };
+      }),
+    );
+  });
 
 export const summary = (videoId: VideoId) =>
   Effect.gen(function* () {
@@ -175,15 +288,10 @@ export const summary = (videoId: VideoId) =>
       videoId,
       "summary",
       Effect.gen(function* () {
-        const records = yield* Store.use((s) => s.enrichments(videoId));
-        const raw = records.find((r) => r.kind === "transcript")?.result;
-        const segments = Option.getOrElse(
-          Option.map(Schema.decodeUnknownOption(TranscriptResult)(raw), (t) => t.segments),
-          () => [],
-        );
+        const { language, segments } = yield* storedTranscript(videoId);
         if (segments.length === 0)
           return yield* new AiError({ step: "summary", message: "pas de transcription" });
-        const result = yield* Summarizer.use((s) => s.summarize(segments));
+        const result = yield* Summarizer.use((s) => s.summarize(segments, language ?? null));
         // Le titre généré ne remplace jamais un titre choisi par le propriétaire.
         const store = yield* Store;
         const video = yield* store.getVideo(videoId);

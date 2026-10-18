@@ -81,17 +81,34 @@ export const stepState = (status: EnrichmentStatus | undefined): StepState => {
   }
 };
 
-export const stepDetail = (status: EnrichmentStatus | undefined): string => {
+/** Durée lisible : « 0,8 s », « 42 s », « 3 min 05 ». */
+export const formatDuration = (ms: number): string => {
+  if (ms < 10_000) return `${(ms / 1000).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} s`;
+  const total = Math.round(ms / 1000);
+  if (total < 60) return `${total} s`;
+  return `${Math.floor(total / 60)} min ${String(total % 60).padStart(2, "0")}`;
+};
+
+/**
+ * Détail d'une étape. Avec `now`, une étape en cours affiche son chrono (depuis
+ * `startedAt`) et son avancement quand il est connu.
+ */
+export const stepDetail = (status: EnrichmentStatus | undefined, now?: number): string => {
   switch (status?._tag) {
     case undefined:
     case "Pending":
       return "en attente";
-    case "Running":
-      return status.attempt > 1 ? `nouvelle tentative ${status.attempt}/3` : "en cours";
+    case "Running": {
+      const label = status.attempt > 1 ? `nouvelle tentative ${status.attempt}/3` : "en cours";
+      const chrono =
+        now !== undefined && status.startedAt
+          ? ` · ${formatDuration(Math.max(0, now - status.startedAt.epochMilliseconds))}`
+          : "";
+      const progress = status.progress === undefined ? "" : ` · ${Math.floor(status.progress)} %`;
+      return `${label}${progress}${chrono}`;
+    }
     case "Done":
-      return status.durationMs > 0
-        ? `${(status.durationMs / 1000).toLocaleString("fr-FR", { maximumFractionDigits: 1 })} s`
-        : "fait";
+      return status.durationMs > 0 ? formatDuration(status.durationMs) : "fait";
     case "Failed":
       return `échec · ${status.error}`;
     case "Disabled":

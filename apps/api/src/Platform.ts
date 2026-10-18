@@ -39,6 +39,16 @@ export interface StreamDetails {
   readonly hls: string;
   /** URL de miniature ; accepte `?time=42s`. */
   readonly thumbnail: string;
+  /** Les qualités hautes s'encodent encore (Stream est lisible avant la fin). */
+  readonly encoding: boolean;
+  /** Avancement de l'encodage, 0–100. */
+  readonly progress: number;
+}
+
+/** Flux audio à transmettre tel quel à la transcription. */
+export interface AudioStream {
+  readonly body: ReadableStream;
+  readonly contentType: string;
 }
 
 export class StreamVideos extends Context.Service<
@@ -50,8 +60,14 @@ export class StreamVideos extends Context.Service<
     ): Effect.Effect<{ uid: StreamUid; uploadUrl: string; protocol: "tus" | "put" }>;
     details(uid: StreamUid): Effect.Effect<StreamDetails>;
     setThumbnail(uid: StreamUid, pct: number): Effect.Effect<void>;
-    /** Piste audio (pour la transcription) ; `null` tant que le téléchargement n'est pas prêt. */
-    audio(uid: StreamUid): Effect.Effect<Uint8Array | null>;
+    /** Demande à Stream de préparer la piste audio (sans attendre). */
+    requestAudio(uid: StreamUid): Effect.Effect<void>;
+    /** La piste audio est-elle prête ? */
+    audioReady(uid: StreamUid): Effect.Effect<boolean>;
+    /** Piste audio en flux ; `null` tant que Stream ne l'a pas préparée. */
+    audio(uid: StreamUid): Effect.Effect<AudioStream | null>;
+    /** Sous-titres WebVTT, affichés par le lecteur et déclarés dans le manifeste HLS. */
+    uploadCaptions(uid: StreamUid, language: string, vtt: string): Effect.Effect<void>;
     remove(uid: StreamUid): Effect.Effect<void>;
   }
 >()("@clip/api/StreamVideos") {
@@ -93,6 +109,8 @@ export class StreamVideos extends Context.Service<
               duration: v.duration,
               hls: v.hlsPlaybackUrl,
               thumbnail: v.thumbnail,
+              encoding: v.status.state !== "error" && v.status.step === "encoding",
+              progress: Number(v.status.pctComplete ?? (v.readyToStream ? 100 : 0)),
             })),
             Effect.withSpan("stream.details"),
           ),
@@ -101,14 +119,31 @@ export class StreamVideos extends Context.Service<
             Effect.asVoid,
             Effect.withSpan("stream.setThumbnail"),
           ),
-        audio: (uid) =>
+        requestAudio: (uid) =>
           Effect.promise(async () => {
             const downloads = binding.video(uid).downloads;
-            const current = await downloads.get();
-            const audio = current.audio ?? (await downloads.generate("audio")).audio;
+            if (!(await downloads.get()).audio) await downloads.generate("audio");
+          }).pipe(Effect.withSpan("stream.requestAudio")),
+        audioReady: (uid) =>
+          Effect.promise(() => binding.video(uid).downloads.get()).pipe(
+            Effect.map((d) => d.audio?.status === "ready"),
+            Effect.withSpan("stream.audioReady"),
+          ),
+        audio: (uid) =>
+          Effect.promise(async () => {
+            const audio = (await binding.video(uid).downloads.get()).audio;
             if (audio?.status !== "ready" || !audio.url) return null;
-            return new Uint8Array(await (await fetch(audio.url)).arrayBuffer());
+            const response = await fetch(audio.url);
+            if (!response.ok || !response.body) return null;
+            return {
+              body: response.body,
+              contentType: response.headers.get("content-type") ?? "audio/mp4",
+            };
           }).pipe(Effect.withSpan("stream.audio")),
+        uploadCaptions: (uid, language, vtt) =>
+          Effect.promise(() =>
+            binding.video(uid).captions.upload(language, new Blob([vtt]).stream()),
+          ).pipe(Effect.asVoid, Effect.withSpan("stream.captions")),
         remove: (uid) =>
           Effect.promise(() => binding.video(uid).delete()).pipe(Effect.withSpan("stream.delete")),
       }),
@@ -136,10 +171,15 @@ export class StreamVideos extends Context.Service<
               duration: Number(object?.customMetadata?.duration ?? 60),
               hls: `/dev/stream/${uid}`,
               thumbnail: `/dev/stream/${uid}/thumbnail.svg`,
+              encoding: false,
+              progress: 100,
             })),
           ),
         setThumbnail: () => Effect.void,
-        audio: () => Effect.succeed(new Uint8Array()),
+        requestAudio: () => Effect.void,
+        audioReady: () => Effect.succeed(true),
+        audio: () => Effect.sync(() => ({ body: new Blob([]).stream(), contentType: "audio/mp4" })),
+        uploadCaptions: () => Effect.void,
         remove: (uid) => Effect.promise(() => bucket.delete(`dev-stream/${uid}`)),
       }),
     );
@@ -187,7 +227,11 @@ export class Live extends Context.Service<
 
 export class Pipeline extends Context.Service<
   Pipeline,
-  { start(videoId: VideoId): Effect.Effect<void> }
+  {
+    start(videoId: VideoId): Effect.Effect<void>;
+    /** Réveille le Workflow : Stream a fini (ou raté) l'encodage. */
+    notifyEncoded(videoId: VideoId): Effect.Effect<void>;
+  }
 >()("@clip/api/Pipeline") {
   static readonly layer = (binding: Workflow) =>
     Layer.succeed(
@@ -198,8 +242,16 @@ export class Pipeline extends Context.Service<
             Effect.asVoid,
             Effect.withSpan("pipeline.start"),
           ),
+        notifyEncoded: (videoId) =>
+          Effect.promise(async () => {
+            const instance = await binding.get(videoId);
+            await instance.sendEvent({ type: "stream-ready", payload: {} });
+          }).pipe(Effect.withSpan("pipeline.notifyEncoded")),
       }),
     );
 
-  static readonly layerNoop = Layer.succeed(Pipeline, Pipeline.of({ start: () => Effect.void }));
+  static readonly layerNoop = Layer.succeed(
+    Pipeline,
+    Pipeline.of({ start: () => Effect.void, notifyEncoded: () => Effect.void }),
+  );
 }

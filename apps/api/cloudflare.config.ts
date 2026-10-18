@@ -57,6 +57,14 @@ export default defineConfig(({ mode }) => {
         // Token API Stream (Stream:Edit) pour l'upload tus, rangé une fois dans le Secrets
         // Store du compte : prod, previews et Workers de PR s'y branchent sans rien renvoyer.
         // En local, `cf dev` lit la copie locale (`cf secrets-store secrets create … --local`).
+        // Secret de signature du webhook Stream (unique par compte → production seulement).
+        STREAM_WEBHOOK_SECRET:
+          mode === "production" &&
+          process.env.CLIP_STREAM_WEBHOOK !== "0" &&
+          bindings.secretsStoreSecret({
+            storeId: "1ef90d01875a4f5baaea375be4e6b0ad",
+            secretName: "STREAM_WEBHOOK_SECRET",
+          }),
         STREAM_API_TOKEN:
           remote &&
           bindings.secretsStoreSecret({

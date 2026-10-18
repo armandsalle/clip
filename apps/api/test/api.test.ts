@@ -1,12 +1,12 @@
 import { assert, layer } from "@effect/vitest";
-import { Effect, Fiber, Layer } from "effect";
+import { DateTime, Effect, Fiber, Layer } from "effect";
 import { TestClock } from "effect/testing";
 import { HttpServer } from "effect/http";
 import { HttpApiTest } from "effect/http-api";
 import { ClipApi } from "@clip/contract";
 import { VideosHandlers } from "../src/http.ts";
 import * as Pipeline from "../src/pipeline.ts";
-import { TestPlatform } from "./support/layers.ts";
+import { captionsUploaded, TestPlatform } from "./support/layers.ts";
 
 const makeClient = HttpApiTest.groups(ClipApi, ["videos"]);
 
@@ -39,12 +39,18 @@ layer(
       yield* withClock(
         Effect.all([Pipeline.thumbnail(id), Pipeline.suggestions(id), Pipeline.transcript(id)]),
       );
-      yield* withClock(Pipeline.summary(id));
+      yield* withClock(Effect.all([Pipeline.summary(id), Pipeline.captions(id)]));
 
       const view = yield* client.videos.get({ params: { id } });
       assert.strictEqual(view.video.status._tag, "Ready");
       assert.strictEqual(view.video.title, "Démo Clip");
       assert.isTrue(view.transcript.length > 0);
+      assert.strictEqual(view.language, "fr");
+      assert.deepStrictEqual([...new Set(view.transcript.map((s) => s.speaker))].sort(), [0, 1]);
+      const vtt = captionsUploaded.at(-1);
+      assert.strictEqual(vtt?.language, "fr");
+      assert.isTrue(vtt?.vtt.startsWith("WEBVTT") && vtt.vtt.includes("<v Intervenant 2>"));
+      assert.strictEqual(view.enrichments.captions._tag, "Done");
       assert.deepStrictEqual(view.thumbnailSuggestions, [24, 60, 96]);
       assert.strictEqual(view.enrichments.summary._tag, "Done");
       assert.strictEqual(view.enrichments.storyboard._tag, "Pending");
@@ -99,6 +105,22 @@ layer(
       });
       assert.strictEqual(updated.title, "Démo");
       assert.strictEqual(updated.thumbnail._tag, "Frame");
+    }),
+  );
+
+  it.effect("l'encodage a une vraie durée, et la HD publie son avancement", () =>
+    Effect.gen(function* () {
+      const client = yield* makeClient;
+      const { video } = yield* client.videos.create({
+        payload: { email: null, expiry: "never", size: 1_000_000 },
+      });
+      yield* TestClock.adjust("42 seconds");
+      yield* Pipeline.checkEncoding(video.id);
+      const startedAt = (yield* DateTime.now).epochMilliseconds;
+      assert.strictEqual(yield* Pipeline.checkHd(video.id, startedAt), "waiting");
+      const view = yield* client.videos.get({ params: { id: video.id } });
+      const hd = view.enrichments.hd;
+      assert.isTrue(hd._tag === "Running" && hd.progress === 94 && hd.startedAt !== undefined);
     }),
   );
 });

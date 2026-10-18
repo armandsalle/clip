@@ -72,6 +72,12 @@ export const VideoPage = ({ id }: { id: VideoId }) => {
             <Player
               src={view.playback!.hls}
               poster={view.playback!.thumbnail}
+              captions={
+                view.transcript.length > 0
+                  ? `/api/videos/${id}/captions.vtt?n=${view.transcript.length}`
+                  : undefined
+              }
+              captionsLang={view.language ?? undefined}
               videoRef={videoRef}
               duration={duration}
               comments={comments}
@@ -93,6 +99,15 @@ export const VideoPage = ({ id }: { id: VideoId }) => {
             </div>
           ) : (
             <PipelineCard view={view} steps={steps} />
+          )}
+
+          {playable && steps.hd?._tag === "Running" && (
+            <div style={{ marginTop: 8 }}>
+              <span className="hd-badge" title="Stream encode encore les qualités hautes">
+                HD en cours
+                {steps.hd.progress !== undefined && ` · ${Math.floor(steps.hd.progress)} %`}
+              </span>
+            </div>
           )}
 
           {view.chapters.length > 0 && (
