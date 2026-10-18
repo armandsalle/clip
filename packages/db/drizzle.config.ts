@@ -4,7 +4,7 @@ import { defineConfig } from "drizzle-kit";
 // connexions. Variables tirées par `neon deploy` / `neon env pull` dans .env.local.
 export default defineConfig({
   dialect: "postgresql",
-  schema: "./src/db/schema.ts",
+  schema: "./src/schema.ts",
   out: "./migrations",
   dbCredentials: { url: process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL ?? "" },
 });

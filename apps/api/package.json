@@ -8,22 +8,21 @@
   },
   "dependencies": {
     "@clip/contract": "workspace:*",
+    "@clip/db": "workspace:*",
     "@clip/domain": "workspace:*",
+    "@clip/platform": "workspace:*",
     "@effect/sql-pg": "catalog:",
-    "drizzle-orm": "catalog:",
     "effect": "catalog:",
     "postal-mime": "catalog:"
   },
   "devDependencies": {
+    "@clip/testing": "workspace:*",
     "@clip/web": "catalog:",
     "@cloudflare/vite-plugin": "catalog:",
-    "@effect/sql-pglite": "catalog:",
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
     "@vitejs/plugin-react": "catalog:",
     "cf": "catalog:",
-    "drizzle-kit": "catalog:",
-    "pg": "catalog:",
     "typescript": "catalog:",
     "vite-plus": "catalog:"
   }

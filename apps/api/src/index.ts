@@ -9,8 +9,6 @@ import { Effect, Layer, ManagedRuntime, Option, Redacted, Scheduler } from "effe
 import { HttpRouter, HttpServer } from "effect/http";
 import { PgClient } from "@effect/sql-pg";
 import { VideoId } from "@clip/domain";
-import { Summarizer, Transcriber } from "./Ai.ts";
-import { Db } from "./db/Db.ts";
 import { ApiRoutes } from "./http.ts";
 import * as Pipeline_ from "./pipeline.ts";
 import PostalMime from "postal-mime";
@@ -22,9 +20,13 @@ import {
   Pipeline,
   StreamVideos,
   type CommentNotification,
-} from "./Platform.ts";
-import { Store } from "./Store.ts";
-import { isReady, verifyStreamWebhook } from "./webhook.ts";
+  Features,
+  isReady,
+  Summarizer,
+  Transcriber,
+  verifyStreamWebhook,
+} from "@clip/platform";
+import { Db, Store } from "@clip/db";
 
 export { VideoRoom } from "./room.ts";
 
@@ -74,7 +76,7 @@ const PlatformLive = Layer.mergeAll(
   Pipeline.layer(env.PIPELINE),
   Mailer.layer(env.MAIL, env.DOMAIN),
   Notifications.layer(env.NOTIFICATIONS as Queue<CommentNotification>),
-  Pipeline_.Features.layer({ ai: true, storyboard: false, chaos: Number(env.CHAOS) || 0 }),
+  Features.layer({ ai: true, storyboard: false, chaos: Number(env.CHAOS) || 0 }),
 );
 
 const SyncScheduler = Layer.succeed(Scheduler.Scheduler, new Scheduler.MixedScheduler("sync"));

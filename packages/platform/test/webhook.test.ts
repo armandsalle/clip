@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Option } from "effect";
 import { Hex } from "effect/encoding";
-import { toVtt } from "../src/pipeline.ts";
+import { toVtt } from "../src/captions.ts";
 import { isReady, verifyStreamWebhook } from "../src/webhook.ts";
 
 const sign = async (secret: string, time: number, body: string) => {

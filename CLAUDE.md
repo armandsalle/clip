@@ -38,4 +38,5 @@ Lire `docs/PRODUCT.md` (produit) et `docs/ARCHITECTURE.md` (tech) avant toute mo
 - Versions : uniquement via le `catalog` de `pnpm-workspace.yaml`, figées exactement.
 - Pas de dépendance directe sur `vite` dans `apps/api` (sinon `cf` lance `npx vite` et contourne Vite+).
 - Commandes `cf` du Worker : tâches Vite+ (`vp run @clip/api#dev|build|deploy`), pas des scripts npm.
-- Base : Drizzle 1.0 RC (API Effect). Toute requête passe par le query builder, jamais par du SQL brut non typé. Après une modif de `src/db/schema.ts` : `pnpm exec drizzle-kit generate` dans `apps/api`. Le dépôt est testé contre PGlite (`test/support/pglite.ts`).
+- Base : Drizzle 1.0 RC (API Effect). Toute requête passe par le query builder, jamais par du SQL brut non typé. Schéma, migrations et `Store` vivent dans `packages/db` : après une modif de `src/schema.ts`, `pnpm exec drizzle-kit generate` dans `packages/db`. Le dépôt est testé contre PGlite (`packages/db/test/support/pglite.ts`).
+- Un Layer par binding dans `packages/platform` ; fakes et recorders de test partagés dans `packages/testing`.

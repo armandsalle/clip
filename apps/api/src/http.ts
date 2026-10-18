@@ -21,8 +21,8 @@ import {
   Pipeline,
   StreamVideos,
   type StreamDetails,
-} from "./Platform.ts";
-import { Store } from "./Store.ts";
+} from "@clip/platform";
+import { Store } from "@clip/db";
 
 const MAX_DURATION_SECONDS = 3600;
 const KINDS = EnrichmentKind.literals;

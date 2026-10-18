@@ -1,4 +1,4 @@
-import { Context, DateTime, Duration, Effect, Layer, Option, Ref, Schedule, Schema } from "effect";
+import { DateTime, Duration, Effect, Option, Ref, Schedule, Schema } from "effect";
 import {
   Comment,
   CommentId,
@@ -9,28 +9,26 @@ import {
   type EnrichmentKind,
 } from "@clip/domain";
 import { TranscriptSegment } from "@clip/contract";
-import { AiError, Summarizer, Transcriber } from "./Ai.ts";
-import { Live, Mailer, StreamVideos, type CommentNotification } from "./Platform.ts";
 import {
+  AiError,
   commentsEmail,
   extractReplyText,
+  Features,
+  Live,
+  Mailer,
   readyEmail,
   replyAddress,
+  StreamVideos,
+  Summarizer,
+  toVtt,
   tokenFromAddress,
-} from "./emails.ts";
-import { Store } from "./Store.ts";
+  Transcriber,
+  type CommentNotification,
+} from "@clip/platform";
+import { Store } from "@clip/db";
 
 // Logique du pipeline en Effect pur (testable sans Workflow). Le Workflow
 // Cloudflare (index.ts) appelle chaque fonction dans un `step.do` durable.
-
-/** Interrupteurs à chaud (Flagship en prod, variables en local). */
-export class Features extends Context.Service<
-  Features,
-  { readonly ai: boolean; readonly storyboard: boolean; readonly chaos: number }
->()("@clip/api/Features") {
-  static readonly layer = (features: { ai: boolean; storyboard: boolean; chaos: number }) =>
-    Layer.succeed(Features, Features.of(features));
-}
 
 export class StepFailed extends Schema.TaggedError<StepFailed, { readonly brand: unique symbol }>()(
   "StepFailed",
@@ -242,27 +240,6 @@ export const transcript = (videoId: VideoId) =>
       }),
     );
   });
-
-const vttTime = (seconds: number) => {
-  const ms = Math.round(seconds * 1000);
-  const h = Math.floor(ms / 3_600_000);
-  const m = Math.floor((ms % 3_600_000) / 60_000);
-  const s = Math.floor((ms % 60_000) / 1000);
-  const pad = (n: number, w = 2) => String(n).padStart(w, "0");
-  return `${pad(h)}:${pad(m)}:${pad(s)}.${pad(ms % 1000, 3)}`;
-};
-
-/** WebVTT avec les intervenants (`<v Intervenant 1>`), lus par les lecteurs HLS. */
-export const toVtt = (segments: ReadonlyArray<typeof TranscriptSegment.Type>): string =>
-  [
-    "WEBVTT",
-    ...segments.map(
-      (s, i) =>
-        `${i + 1}\n${vttTime(s.start)} --> ${vttTime(Math.max(s.end, s.start + 0.5))}\n${
-          s.speaker == null ? "" : `<v Intervenant ${s.speaker + 1}>`
-        }${s.text}`,
-    ),
-  ].join("\n\n");
 
 /** VTT de la transcription enregistrée, ou `null` s'il n'y en a pas encore. */
 export const captionsVtt = Effect.fn("pipeline.captionsVtt")(function* (videoId: VideoId) {

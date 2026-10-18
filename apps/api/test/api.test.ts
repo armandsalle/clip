@@ -6,7 +6,7 @@ import { HttpApiTest } from "effect/http-api";
 import { ClipApi } from "@clip/contract";
 import { VideosHandlers } from "../src/http.ts";
 import * as Pipeline from "../src/pipeline.ts";
-import { captionsUploaded, queued, sentEmails, TestPlatform } from "./support/layers.ts";
+import { captionsUploaded, queued, sentEmails, TestPlatform } from "@clip/testing";
 
 const makeClient = HttpApiTest.groups(ClipApi, ["videos"]);
 

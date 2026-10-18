@@ -1,7 +1,7 @@
+// Doubles de test partagés : Stream encodé tout de suite, emails et notifications
+// enregistrés, IA factice. Utilisés par les tests des apps et des packages.
 import { Effect, Layer } from "effect";
 import { StreamUid } from "@clip/domain";
-import { Summarizer, Transcriber } from "../../src/Ai.ts";
-import { Features } from "../../src/pipeline.ts";
 import {
   AdminKeys,
   Live,
@@ -11,8 +11,11 @@ import {
   StreamVideos,
   type CommentNotification,
   type OutgoingEmail,
-} from "../../src/Platform.ts";
-import { Store } from "../../src/Store.ts";
+  Features,
+  Summarizer,
+  Transcriber,
+} from "@clip/platform";
+import { Store } from "@clip/db";
 
 /** Sous-titres envoyés au Stream de test (pour les assertions). */
 export const captionsUploaded: Array<{ uid: string; language: string; vtt: string }> = [];

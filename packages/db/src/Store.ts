@@ -10,8 +10,8 @@ import {
   type EnrichmentKind,
   VideoId,
 } from "@clip/domain";
-import { Db } from "./db/Db.ts";
-import { comments, enrichments, videos } from "./db/schema.ts";
+import { Db } from "./Db.ts";
+import { comments, enrichments, videos } from "./schema.ts";
 
 export interface EnrichmentRecord {
   readonly kind: EnrichmentKind;

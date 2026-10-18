@@ -3,7 +3,7 @@ import { PgliteClient } from "@effect/sql-pglite";
 import * as PgliteDrizzle from "drizzle-orm/effect-pglite";
 import { migrate } from "drizzle-orm/effect-pglite/migrator";
 import { fileURLToPath } from "node:url";
-import { Db } from "../../src/db/Db.ts";
+import { Db } from "../../src/Db.ts";
 
 // Vrai Postgres (PGlite, en mémoire) avec les migrations Drizzle appliquées :
 // le SQL généré par le dépôt est exécuté pour de bon, sans Docker.

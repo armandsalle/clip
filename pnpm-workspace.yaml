@@ -8,6 +8,7 @@ catalogMode: prefer
 # "unstable" d'Effect peuvent casser en version mineure.
 catalog:
   "@clip/web": workspace:*
+  "@cloudflare/workers-types": 5.20261012.1
   "@cloudflare/vite-plugin": 2.0.0-beta.v.1
   "@effect/sql-pg": 4.0.5
   "@effect/sql-pglite": 4.0.5
