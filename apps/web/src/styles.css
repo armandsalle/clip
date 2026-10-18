@@ -351,6 +351,7 @@ button {
 }
 
 .player {
+  position: relative;
   overflow: hidden;
   border: 1px solid var(--clip-border);
   border-radius: 16px;
@@ -1339,4 +1340,16 @@ button {
   border-radius: 999px;
   color: var(--clip-running, #e0af68);
   border: 1px solid color-mix(in oklab, var(--clip-running, #e0af68) 50%, transparent);
+}
+
+/* Chargement pendant un saut dans la timeline */
+.player-loading {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  aspect-ratio: 16 / 9;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
 }

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
+import { preconnect } from "react-dom";
 import type { Comment } from "@clip/domain";
 import type { Chapter } from "./types.ts";
 import type { Viewer } from "./live.ts";
@@ -37,9 +38,18 @@ export const Player = ({
 }) => {
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
+  /** Saut en cours ou mise en mémoire tampon : indicateur de chargement. */
+  const [loading, setLoading] = useState(false);
   const [mediaDuration, setMediaDuration] = useState(0);
   const container = useRef<HTMLDivElement>(null);
   const duration = mediaDuration || knownDuration || 1;
+
+  // Préconnexion au domaine Stream (DNS + TLS) dès l'affichage : le premier saut
+  // dans la timeline n'a plus à payer la négociation.
+  useEffect(() => {
+    if (!src.startsWith("http")) return;
+    preconnect(new URL(src).origin, { crossOrigin: "anonymous" });
+  }, [src]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -57,7 +67,14 @@ export const Player = ({
       // Qualité : on démarre sur la meilleure qualité adaptée à la taille du lecteur,
       // au lieu de la plus basse ; l'ABR redescend si la connexion ne suit pas.
       // Les sous-titres viennent de la piste <track> (VTT du Worker), pas du manifeste.
-      const hls = new Hls({ capLevelToPlayerSize: true });
+      const hls = new Hls({
+        capLevelToPlayerSize: true,
+        // Estimation de débit initiale haute : pas de changement de qualité (et de
+        // segment rechargé) juste après un saut.
+        abrEwmaDefaultEstimate: 5_000_000,
+        // Télécharge le premier segment pendant que le lecteur s'initialise.
+        startFragPrefetch: true,
+      });
       hls.subtitleDisplay = false;
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
         hls.startLevel = hls.levels.length - 1;
@@ -73,7 +90,11 @@ export const Player = ({
     const video = videoRef.current;
     if (!video) return;
     const rect = track.getBoundingClientRect();
-    video.currentTime = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width)) * duration;
+    const target = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width)) * duration;
+    // La tête de lecture saute tout de suite ; la vidéo suit dès que le segment arrive.
+    setTime(target);
+    setLoading(true);
+    video.currentTime = target;
   };
 
   const chapter = [...chapters].reverse().find((c) => c.time <= time);
@@ -91,6 +112,11 @@ export const Player = ({
         }}
         onPlay={() => setPlaying(true)}
         onPause={() => setPlaying(false)}
+        onSeeking={() => setLoading(true)}
+        onWaiting={() => setLoading(true)}
+        onSeeked={() => setLoading(false)}
+        onPlaying={() => setLoading(false)}
+        onCanPlay={() => setLoading(false)}
         onLoadedMetadata={(e) => {
           const d = e.currentTarget.duration;
           if (Number.isFinite(d)) setMediaDuration(d);
@@ -111,6 +137,27 @@ export const Player = ({
           />
         )}
       </video>
+      {loading && (
+        <div className="player-loading" aria-label="Chargement">
+          <svg className="spin" width="28" height="28" viewBox="0 0 20 20" aria-hidden>
+            <circle
+              cx="10"
+              cy="10"
+              r="8"
+              fill="none"
+              stroke="rgba(255,255,255,.25)"
+              strokeWidth="2"
+            />
+            <path
+              d="M10 2a8 8 0 0 1 8 8"
+              fill="none"
+              stroke="#fff"
+              strokeWidth="2"
+              strokeLinecap="round"
+            />
+          </svg>
+        </div>
+      )}
       <div className="controls">
         <div className="track" onClick={(e) => seekTo(e.clientX, e.currentTarget)}>
           {viewers
