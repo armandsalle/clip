@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import type { EnrichmentStatus, VideoId } from "@clip/domain";
 import type { LiveEvent } from "@clip/contract";
-import type { Received } from "./live.ts";
-import { stepDetail, stepState, Tile, type StepState } from "./ui/steps.tsx";
-import { useVideo } from "./useVideo.ts";
 import { Link } from "@tanstack/react-router";
-import { formatTime } from "./util.ts";
+import { useQuery } from "@tanstack/react-query";
+import { commentsQuery, videoQuery } from "../api/queries.ts";
+import type { Received } from "../live.ts";
+import { useLiveVideo } from "../live/useLiveVideo.ts";
+import { stepDetail, stepState, Tile, type StepState } from "../ui/steps.tsx";
+import { formatTime, viewerName } from "../util.ts";
 
 // Coulisses : l'écran projeté pendant la démo. Chaque tuile suit en direct une
 // étape du Workflow (les événements `Step` publiés par le pipeline Effect via le
@@ -103,7 +105,11 @@ const Branch = ({
 };
 
 export const Coulisses = ({ id }: { id: VideoId }) => {
-  const { view, comments, steps, live } = useVideo(id);
+  const view = useQuery(videoQuery(id)).data;
+  const comments = useQuery(commentsQuery(id)).data ?? [];
+  const alive = view !== undefined && !["Expired", "Deleted"].includes(view.video.status._tag);
+  const live = useLiveVideo(id, viewerName() ?? "Invité", alive);
+  const steps: Readonly<Record<string, EnrichmentStatus>> = { ...view?.enrichments, ...live.steps };
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 500);

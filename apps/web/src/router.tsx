@@ -8,7 +8,7 @@ import {
 import type { QueryClient } from "@tanstack/react-query";
 import { Option, Schema } from "effect";
 import { VideoId } from "@clip/domain";
-import { Coulisses } from "./Coulisses.tsx";
+import { Coulisses } from "./routes/Coulisses.tsx";
 import { Gallery } from "./routes/Gallery.tsx";
 import { Upload } from "./routes/Upload.tsx";
 import { VideoPage } from "./routes/video/VideoPage.tsx";

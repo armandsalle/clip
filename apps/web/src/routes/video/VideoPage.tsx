@@ -103,7 +103,9 @@ export const VideoPage = ({ id }: { id: VideoId }) => {
   const comments = useQuery(commentsQuery(id));
   const [adminKey] = useState(() => adminKeyFor(id));
   const [name] = useState(() => viewerName() ?? "Invité");
-  const live = useLiveVideo(id, name);
+  const alive =
+    video.data !== undefined && !["Expired", "Deleted"].includes(video.data.video.status._tag);
+  const live = useLiveVideo(id, name, alive);
   const [start] = useState(() => startPosition(id, new URLSearchParams(location.search), session));
   const [time, setTime] = useState(start.time);
   const [tab, setTab] = useState<Tab>("comments");

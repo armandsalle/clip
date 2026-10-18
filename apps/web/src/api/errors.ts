@@ -30,7 +30,7 @@ const messages: Record<ApiErrorTag, string> = {
 
 export const UNKNOWN_ERROR = "Une erreur est survenue. Réessayez dans un instant.";
 
-const isApiErrorTag = (tag: string): tag is ApiErrorTag => Object.hasOwn(messages, tag);
+export const isApiErrorTag = (tag: string): tag is ApiErrorTag => Object.hasOwn(messages, tag);
 
 /** Message à afficher pour une erreur reçue de l'API (ou inattendue). */
 export const messageFor = (tag: string | undefined): string =>

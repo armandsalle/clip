@@ -19,7 +19,7 @@ export interface LiveVideo extends Live {
  * chaque événement patche `video(id)` et `comments(id)` ; la vue complète n'est
  * relue que quand un résultat arrive.
  */
-export const useLiveVideo = (id: VideoId, name: string): LiveVideo => {
+export const useLiveVideo = (id: VideoId, name: string, enabled = true): LiveVideo => {
   const queryClient = useQueryClient();
   const [steps, setSteps] = useState<Record<string, EnrichmentStatus>>({});
   const [freshIds, setFreshIds] = useState<ReadonlySet<string>>(new Set());
@@ -41,6 +41,6 @@ export const useLiveVideo = (id: VideoId, name: string): LiveVideo => {
     [id, queryClient],
   );
 
-  const live = useLive(id, name, onEvent);
+  const live = useLive(id, name, onEvent, enabled);
   return { ...live, steps, freshIds };
 };

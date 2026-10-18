@@ -35,6 +35,8 @@ export const useLive = (
   videoId: string,
   name: string,
   onEvent: (event: LiveEvent) => void,
+  /** Pas de connexion pour une vidéo introuvable, expirée ou supprimée. */
+  enabled = true,
 ): Live => {
   const [connected, setConnected] = useState(false);
   const [viewers, setViewers] = useState<ReadonlyArray<Viewer>>([]);
@@ -45,6 +47,7 @@ export const useLive = (
   handler.current = onEvent;
 
   useEffect(() => {
+    if (!enabled) return;
     let closed = false;
     let retry: ReturnType<typeof setTimeout> | undefined;
     let stable: ReturnType<typeof setTimeout> | undefined;
@@ -100,7 +103,7 @@ export const useLive = (
       if (ws?.readyState === WebSocket.CONNECTING) ws.onopen = () => ws.close();
       else ws?.close();
     };
-  }, [videoId, name]);
+  }, [videoId, name, enabled]);
 
   const lastSent = useRef(0);
   const sendTime = (time: number) => {
