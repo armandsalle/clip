@@ -90,7 +90,7 @@ Chaque étape émet ses événements (début, fin, échec, nouvelle tentative) v
 ### F7 · Répondre par email
 
 1. Nouveau commentaire → email au propriétaire (regroupés si plusieurs en moins de 2 minutes) avec l'extrait, le timecode et un lien.
-2. L'adresse de réponse est unique par commentaire (`reply+<jeton>@clip.bonjour.pizza`, grâce au sous-adressage d'Email Routing).
+2. L'adresse de réponse est unique par commentaire (`reply+<jeton>@clipshare.dev`, grâce au sous-adressage d'Email Routing).
 3. Le propriétaire répond depuis sa messagerie : la réponse (citations et signature retirées) est publiée sous le commentaire, en direct dans la page, marquée « répondu par email ».
 4. Optionnel : un spectateur qui a laissé son email est prévenu des réponses à son commentaire, et peut répondre de la même façon.
 

@@ -23,9 +23,10 @@ export default defineConfig(({ mode }) => {
   // Stream sur R2 et IA factice.
   const remote = mode === "production" || process.env.CLIP_REMOTE === "1";
   const withContainers = process.env.CLIP_CONTAINERS !== "0";
-  // Sous-domaine dédié : l'app, l'envoi d'emails et les réponses par email y vivent,
-  // sans toucher à la racine bonjour.pizza.
-  const domain = process.env.CLIP_DOMAIN ?? "clip.bonjour.pizza";
+  // Domaine dédié : l'app, l'envoi d'emails et les réponses par email y vivent.
+  const domain = process.env.CLIP_DOMAIN ?? "clipshare.dev";
+  // La règle de réception exige Email Routing actif sur le domaine (sinon le déploiement échoue).
+  const emailRouting = process.env.CLIP_EMAIL_ROUTING !== "0";
   return {
     containers: withContainers ? [storyboard] : [],
     worker: {
@@ -35,7 +36,7 @@ export default defineConfig(({ mode }) => {
       // @effect/sql-pg ouvre ses connexions via node:net.
       compatibilityFlags: ["nodejs_compat"],
       observability: { enabled: true },
-      // Production sur clip.bonjour.pizza, previews sur ses sous-domaines.
+      // Production sur clipshare.dev, previews sur ses sous-domaines.
       ...(mode === "production" && {
         domains: [{ hostname: domain, production: true, previews: true }],
       }),
@@ -102,7 +103,7 @@ export default defineConfig(({ mode }) => {
       triggers: [
         triggers.queue({ name: `${name}-notifications`, maxBatchSize: 10, maxRetries: 5 }),
         // Avec le sous-adressage d'Email Routing, reply+<jeton>@… arrive ici.
-        triggers.email({ addresses: [`reply@${domain}`] }),
+        ...(emailRouting ? [triggers.email({ addresses: [`reply@${domain}`] })] : []),
       ],
     },
   };

@@ -2,7 +2,7 @@
 
 Clip est une démo « à la Grain » 100 % Cloudflare : on dépose une vidéo, sans compte, et elle devient un stream avec transcription, résumé, chapitres, miniatures, commentaires horodatés en direct et questions-réponses. Le produit (flows, UX, écrans) est décrit dans [PRODUCT.md](PRODUCT.md). Ce document décrit la tech.
 
-État au 2026-10-18 : déployé sur https://clip.bonjour.pizza (Worker `clip-api`). Parcours complet vérifié en ligne : upload Stream, transcription Whisper, titre/résumé/chapitres Llama 3.3, Neon via Hyperdrive (environ 40 s). La règle Email Routing n'est pas encore active.
+État au 2026-10-18 : déployé sur https://clipshare.dev (Worker `clip-api`). Parcours complet vérifié en ligne : upload Stream, transcription Whisper, titre/résumé/chapitres Llama 3.3, Neon via Hyperdrive (environ 40 s). La règle Email Routing `reply@clipshare.dev` → Worker est active ; les handlers d'emails restent à écrire.
 
 ## Stack et versions
 
@@ -78,8 +78,8 @@ Chaque étape publie ses états (Running avec le numéro de tentative, Done avec
 | Secrets d'admin                            | SHA-256 (WebCrypto), seul le hash est stocké                                                                         | fait                                                  |
 | Médias (miniatures importées, faux Stream) | R2                                                                                                                   | fait                                                  |
 | Planche de vignettes                       | Container (ffmpeg) piloté par le DO `Storyboard`                                                                     | placeholder, désactivé                                |
-| Notifications de commentaires              | Queues → Email Service, depuis `notifications@clip.bonjour.pizza`                                                    | bindings déclarés, handler vide                       |
-| Réponse aux commentaires par email         | Email Routing sur `reply+<jeton>@clip.bonjour.pizza` (sous-adressage)                                                | handler vide                                          |
+| Notifications de commentaires              | Queues → Email Service, depuis `notifications@clipshare.dev`                                                         | bindings déclarés, handler vide                       |
+| Réponse aux commentaires par email         | Email Routing sur `reply+<jeton>@clipshare.dev` (sous-adressage)                                                     | handler vide                                          |
 | Questions sur la vidéo                     | AI Search sur la transcription                                                                                       | binding déclaré                                       |
 | Carte de partage, formats                  | Images                                                                                                               | binding déclaré                                       |
 | Cache des vues publiques                   | KV                                                                                                                   | binding déclaré                                       |
@@ -88,20 +88,20 @@ Chaque étape publie ses états (Running avec le numéro de tentative, Done avec
 
 ## Domaine et mise en place Cloudflare
 
-Tout vit sur le sous-domaine `clip.bonjour.pizza` ; la racine `bonjour.pizza` (autre projet) n'est pas touchée.
+Tout vit sur le domaine dédié `clipshare.dev` (acheté chez Cloudflare Registrar). Un sous-domaine de `bonjour.pizza` a été écarté : sa racine reçoit déjà des emails via AWS SES, et Email Routing ne s'active sur un sous-domaine qu'après la racine, ce qui aurait remplacé ce MX.
 
-| Usage                                                  | Adresse                                                           |
-| ------------------------------------------------------ | ----------------------------------------------------------------- |
-| App (Worker, domaine personnalisé créé au déploiement) | `https://clip.bonjour.pizza`, previews sur `*.clip.bonjour.pizza` |
-| Envoi d'emails                                         | `notifications@clip.bonjour.pizza`                                |
-| Réponses aux commentaires                              | `reply+<jeton>@clip.bonjour.pizza`                                |
+| Usage                                                  | Adresse                                                 |
+| ------------------------------------------------------ | ------------------------------------------------------- |
+| App (Worker, domaine personnalisé créé au déploiement) | `https://clipshare.dev`, previews sur `*.clipshare.dev` |
+| Envoi d'emails                                         | `notifications@clipshare.dev`                           |
+| Réponses aux commentaires                              | `reply+<jeton>@clipshare.dev`                           |
 
 Étapes manuelles (une fois) :
 
-1. Compte Cloudflare avec l'offre Workers payante ; zone `bonjour.pizza` sur ce compte.
+1. Compte Cloudflare avec l'offre Workers payante ; zone `clipshare.dev` sur ce compte.
 2. Activer Stream (achat de stockage).
-3. Compute → Email Service → Email Sending → Onboard Domain → `clip.bonjour.pizza`.
-4. Email Routing sur `clip.bonjour.pizza`, avec le sous-adressage activé. Ne pas l'activer sur la racine si l'autre projet y reçoit des emails.
+3. Compute → Email Service → Email Sending → Onboard Domain → `clipshare.dev`.
+4. Email Routing sur `clipshare.dev`, avec le sous-adressage activé. La règle `reply@clipshare.dev` est créée par `cf deploy` (`CLIP_EMAIL_ROUTING=0` la désactive).
 5. `pnpm exec cf auth login` dans `apps/api`.
 6. Neon : projet, puis URL de connexion pour la config Hyperdrive.
 
@@ -133,7 +133,7 @@ CLIP_CONTAINERS=0 CLIP_CHAOS=0.5 vp run dev   # mode chaos : 50 % d'échecs, ret
 | `CLIP_FLAGSHIP_APP_ID`  | vide                                                    | app Flagship                                                               |
 | `CLIP_CHAOS`            | `0`                                                     | probabilité d'échec injectée dans chaque tentative d'étape                 |
 | `CLIP_CONTAINERS`       | activé                                                  | `0` retire le container (pas de Docker)                                    |
-| `CLIP_DOMAIN`           | `clip.bonjour.pizza`                                    | domaine de l'app et des emails                                             |
+| `CLIP_DOMAIN`           | `clipshare.dev`                                         | domaine de l'app et des emails                                             |
 
 ## Compatibilité vérifiée
 
