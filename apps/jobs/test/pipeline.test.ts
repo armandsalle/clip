@@ -5,6 +5,7 @@ import { HttpServer } from "effect/http";
 import { HttpApiTest } from "effect/http-api";
 import { ClipApi } from "@clip/contract";
 import { InternalApi } from "@clip/platform";
+import { Store } from "@clip/db";
 import { captionsUploaded, queued, sentEmails, TestPlatform } from "@clip/testing";
 import { ApiTest } from "@clip/api/testing";
 import * as Pipeline from "../src/pipeline.ts";
@@ -167,6 +168,25 @@ layer(ApiTest.pipe(Layer.provideMerge(TestPlatform), Layer.provideMerge(HttpServ
         assert.strictEqual(expired.video.status._tag, "Expired");
         const alive = yield* client.videos.get({ params: { id: kept.video.id } });
         assert.notStrictEqual(alive.video.status._tag, "Expired");
+      }),
+    );
+
+    it.effect("la miniature est enregistrée et la galerie l'affiche", () =>
+      Effect.gen(function* () {
+        const client = yield* makeClient;
+        const { video } = yield* client.videos.create({
+          payload: { email: null, expiry: "never", size: 1_000_000 },
+        });
+        yield* Pipeline.checkEncoding(video.id);
+        yield* withClock(Pipeline.thumbnail(video.id));
+        const stored = (yield* Store.use((st) => st.enrichments(video.id))).find(
+          (e) => e.kind === "thumbnail",
+        );
+        assert.deepStrictEqual(stored?.result, { url: "https://thumb.test" });
+        const page = yield* client.videos.list({ query: {} });
+        const card = page.items.find((i) => i.video.id === video.id);
+        assert.strictEqual(card?.thumbnail, "https://thumb.test");
+        assert.strictEqual(card?.enrichments.thumbnail._tag, "Done");
       }),
     );
   },

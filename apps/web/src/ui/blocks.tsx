@@ -18,7 +18,10 @@ export const VideoCard = ({
   thumbnail?: string | null | undefined;
   duration?: string | null | undefined;
   /** Étape en cours, affichée sur la miniature (ex. « Transcription 2/5 »). */
-  status?: { readonly label: string; readonly tone: "running" | "failed" } | null | undefined;
+  status?:
+    | { readonly label: string; readonly tone: "running" | "retry" | "failed" }
+    | null
+    | undefined;
 }) => (
   <article className="c-card">
     <div className="c-card-thumb">

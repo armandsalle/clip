@@ -10,6 +10,7 @@ import { Option, Schema } from "effect";
 import { VideoId } from "@clip/domain";
 import { Coulisses } from "./Coulisses.tsx";
 import { Home } from "./Home.tsx";
+import { Gallery } from "./routes/Gallery.tsx";
 import { VideoPage } from "./VideoPage.tsx";
 
 // Routes déclarées en code, typées de bout en bout. Les paramètres sont validés par
@@ -31,7 +32,33 @@ const videoParams = {
   stringify: ({ id }: { id: VideoId }) => ({ id }),
 };
 
-const homeRoute = createRoute({ getParentRoute: () => rootRoute, path: "/", component: Home });
+/** `?q=` : recherche de la galerie, partageable. */
+const GallerySearch = Schema.Struct({ q: Schema.optionalKey(Schema.String) });
+
+const galleryRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/",
+  validateSearch: Schema.toStandardSchemaV1(GallerySearch),
+  component: function GalleryRoute() {
+    const { q = "" } = galleryRoute.useSearch();
+    const navigate = galleryRoute.useNavigate();
+    return (
+      <Gallery
+        q={q}
+        onSearch={(next) =>
+          void navigate({ search: next.trim() ? { q: next.trim() } : {}, replace: true })
+        }
+      />
+    );
+  },
+});
+
+/** Dépôt : écran v1 en attendant le dépôt façon Smash (lot 6c). */
+const uploadRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: "/upload",
+  component: Home,
+});
 
 const videoRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -53,7 +80,7 @@ const coulissesRoute = createRoute({
   },
 });
 
-const routeTree = rootRoute.addChildren([homeRoute, videoRoute, coulissesRoute]);
+const routeTree = rootRoute.addChildren([galleryRoute, uploadRoute, videoRoute, coulissesRoute]);
 
 export const makeRouter = (queryClient: QueryClient) =>
   createRouter({
@@ -61,7 +88,9 @@ export const makeRouter = (queryClient: QueryClient) =>
     context: { queryClient },
     defaultPreload: "intent",
     scrollRestoration: true,
-    defaultNotFoundComponent: Home,
+    defaultNotFoundComponent: function NotFound() {
+      return <Gallery q="" onSearch={() => undefined} />;
+    },
   });
 
 declare module "@tanstack/react-router" {

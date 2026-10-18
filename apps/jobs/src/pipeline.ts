@@ -151,8 +151,17 @@ const readyVideo = Effect.fn("pipeline.readyVideo")(function* (videoId: VideoId)
   return { video, duration: video.status.duration };
 });
 
+/** Miniature : son URL Stream est enregistrée, la galerie la lit sans appeler Stream. */
 export const thumbnail = (videoId: VideoId) =>
-  enrichment(videoId, "thumbnail", Effect.succeed({ source: "stream" }));
+  enrichment(
+    videoId,
+    "thumbnail",
+    Effect.gen(function* () {
+      const { video } = yield* readyVideo(videoId);
+      const details = yield* StreamVideos.use((s) => s.details(video.streamUid));
+      return { url: details.thumbnail };
+    }),
+  );
 
 /**
  * Étapes « à attente » (audio, HD) : le Workflow les rappelle avec `step.sleep`

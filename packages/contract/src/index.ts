@@ -45,6 +45,32 @@ export class VideoView extends Schema.Class<VideoView, { readonly brand: unique 
   thumbnailSuggestions: Schema.Array(Seconds),
 }) {}
 
+/** Une carte de la galerie : la vidéo, sa miniature et l'avancement de son pipeline. */
+export const VideoCard = Schema.Struct({
+  video: Video,
+  /** Miniature enregistrée par l'étape `thumbnail` (null tant qu'elle n'a pas tourné). */
+  thumbnail: Schema.NullOr(Schema.String),
+  comments: Schema.Int,
+  enrichments: Schema.Record(EnrichmentKind, EnrichmentStatus),
+});
+export type VideoCard = typeof VideoCard.Type;
+
+/** Une page de la galerie, par curseur (plus récentes d'abord). */
+export const GalleryPage = Schema.Struct({
+  items: Schema.Array(VideoCard),
+  /** À passer en `cursor` pour la page suivante ; null à la fin. */
+  nextCursor: Schema.NullOr(Schema.String),
+  /** Nombre total de vidéos correspondant à la recherche. */
+  total: Schema.Int,
+});
+export type GalleryPage = typeof GalleryPage.Type;
+
+export const GalleryQuery = {
+  cursor: Schema.optionalKey(Schema.String),
+  /** Recherche dans les titres et dans ce qui est dit (transcription). */
+  q: Schema.optionalKey(Schema.String),
+};
+
 export const CreateVideo = Schema.Struct({
   email: Schema.NullOr(Schema.String),
   expiry: Expiry,
@@ -89,6 +115,7 @@ const CommandErrors = [VideoNotFound, Forbidden, InvalidTransition, VideoNotRead
 
 export class VideosGroup extends HttpApiGroup.make("videos")
   .add(
+    HttpApiEndpoint.get("list", "/", { query: GalleryQuery, success: GalleryPage }),
     HttpApiEndpoint.post("create", "/", {
       payload: CreateVideo,
       success: VideoCreated,

@@ -24,6 +24,9 @@ export const SummaryResult = Schema.Struct({
   chapters: Schema.Array(Chapter),
 });
 
+/** Résultat de l'étape `thumbnail` : URL de base de la miniature Stream. */
+export const ThumbnailResult = Schema.Struct({ url: Schema.String });
+
 export const SuggestionsResult = Schema.Struct({ times: Schema.Array(Schema.Finite) });
 
 /** Décodeur tolérant d'un résultat stocké : `None` si absent ou d'une autre forme. */

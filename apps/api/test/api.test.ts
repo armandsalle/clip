@@ -1,5 +1,6 @@
 import { assert, layer } from "@effect/vitest";
 import { Effect, Layer } from "effect";
+import { TestClock } from "effect/testing";
 import { HttpServer } from "effect/http";
 import { HttpApiTest } from "effect/http-api";
 import { ClipApi } from "@clip/contract";
@@ -101,6 +102,45 @@ layer(
       assert.strictEqual(removed.status._tag, "Deleted");
       const error = yield* encoded(created.video.id).pipe(Effect.flip);
       assert.strictEqual(error._tag, "InvalidTransition");
+    }),
+  );
+
+  it.effect("la galerie liste les vidéos visibles, plus récentes d'abord", () =>
+    Effect.gen(function* () {
+      const client = yield* makeClient;
+      const before = yield* client.videos.list({ query: {} });
+      // Les autres tests créent leurs vidéos à l'instant 0 de l'horloge de test.
+      yield* TestClock.adjust("1 hour");
+      const a = yield* client.videos.create({
+        payload: { email: null, expiry: "7d", size: 1_000_000 },
+      });
+      yield* TestClock.adjust("1 second");
+      const b = yield* client.videos.create({
+        payload: { email: null, expiry: "7d", size: 1_000_000 },
+      });
+      yield* client.videos.update({
+        params: { id: b.video.id },
+        headers: { "x-clip-admin": b.adminKey },
+        payload: { title: "Revue de sprint" },
+      });
+      const page = yield* client.videos.list({ query: {} });
+      assert.strictEqual(page.total, before.total + 2);
+      assert.deepStrictEqual(
+        page.items.slice(0, 2).map((i) => i.video.id),
+        [b.video.id, a.video.id],
+      );
+      assert.strictEqual(page.items[0]!.enrichments.transcript._tag, "Pending");
+      const found = yield* client.videos.list({ query: { q: "sprint" } });
+      assert.deepStrictEqual(
+        found.items.map((i) => i.video.id),
+        [b.video.id],
+      );
+      yield* client.videos.remove({
+        params: { id: a.video.id },
+        headers: { "x-clip-admin": a.adminKey },
+      });
+      const after = yield* client.videos.list({ query: {} });
+      assert.isFalse(after.items.some((i) => i.video.id === a.video.id));
     }),
   );
 });

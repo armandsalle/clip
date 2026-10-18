@@ -1,5 +1,19 @@
 import { Context, Effect, Layer, Schema } from "effect";
-import { and, asc, eq, ne, notInArray, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  exists,
+  ilike,
+  inArray,
+  lt,
+  ne,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 import {
   Comment,
   type CommentId,
@@ -19,6 +33,41 @@ export interface EnrichmentRecord {
   readonly status: EnrichmentStatus;
   readonly result: unknown;
 }
+
+/** Position dans la galerie : la dernière vidéo de la page précédente. */
+export interface GalleryCursor {
+  readonly createdAtMs: number;
+  readonly id: VideoId;
+}
+
+export interface GalleryQuery {
+  readonly cursor: GalleryCursor | null;
+  /** Recherche dans le titre et dans la transcription (insensible à la casse). */
+  readonly q: string | null;
+  readonly limit: number;
+}
+
+export interface GalleryEntry {
+  readonly video: Video;
+  readonly comments: number;
+  readonly enrichments: ReadonlyArray<EnrichmentRecord>;
+}
+
+export interface GalleryResult {
+  readonly entries: ReadonlyArray<GalleryEntry>;
+  /** Il reste des vidéos après cette page. */
+  readonly more: boolean;
+  /** Nombre total de vidéos qui correspondent à la recherche (toutes pages). */
+  readonly total: number;
+}
+
+/** `%` et `_` cherchés tels quels dans un ILIKE. */
+const likePattern = (q: string) => `%${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
+
+/** Ordre de la galerie : plus récentes d'abord, l'identifiant départage. */
+const isBefore = (video: Video, cursor: GalleryCursor) =>
+  video.createdAt.epochMilliseconds < cursor.createdAtMs ||
+  (video.createdAt.epochMilliseconds === cursor.createdAtMs && video.id < cursor.id);
 
 // Stockage des vidéos, enrichissements et commentaires. Deux implémentations :
 // Drizzle (Neon via Hyperdrive, testée contre PGlite) et mémoire (cf dev sans Postgres).
@@ -67,6 +116,8 @@ export class Store extends Context.Service<
     findCommentByReplyToken(token: string): Effect.Effect<Comment | null>;
     /** Jeton de réponse d'un commentaire (null pour les anciens commentaires). */
     replyTokenOf(commentId: CommentId): Effect.Effect<string | null>;
+    /** Galerie publique : vidéos ni expirées ni supprimées, par pages. */
+    listPublic(query: GalleryQuery): Effect.Effect<GalleryResult>;
     /** Vidéos qui ont une durée de vie et ne sont pas encore expirées ni supprimées (les plus anciennes d'abord). */
     expiring(limit: number): Effect.Effect<ReadonlyArray<Video>>;
   }
@@ -117,6 +168,36 @@ export class Store extends Context.Service<
       findCommentByReplyToken: (token) => Effect.sync(() => tokens.get(token) ?? null),
       replyTokenOf: (commentId) =>
         Effect.sync(() => [...tokens].find(([, c]) => c.id === commentId)?.[0] ?? null),
+      listPublic: ({ cursor, q, limit }) =>
+        Effect.sync(() => {
+          const needle = q?.toLowerCase() ?? null;
+          const said = (id: VideoId) =>
+            JSON.stringify(enrich.get(id)?.get("transcript")?.result ?? "").toLowerCase();
+          const matching = [...vids.values()]
+            .map((r) => r.video)
+            .filter((v) => !isTerminal(v))
+            .filter(
+              (v) =>
+                needle === null ||
+                (v.title ?? "").toLowerCase().includes(needle) ||
+                said(v.id).includes(needle),
+            )
+            .sort(
+              (a, b) =>
+                b.createdAt.epochMilliseconds - a.createdAt.epochMilliseconds ||
+                (a.id < b.id ? 1 : -1),
+            );
+          const after = cursor === null ? matching : matching.filter((v) => isBefore(v, cursor));
+          return {
+            entries: after.slice(0, limit).map((video) => ({
+              video,
+              comments: comms.get(video.id)?.length ?? 0,
+              enrichments: [...(enrich.get(video.id)?.values() ?? [])],
+            })),
+            more: after.length > limit,
+            total: matching.length,
+          };
+        }),
       expiring: (limit) =>
         Effect.sync(() =>
           [...vids.values()]
@@ -159,6 +240,7 @@ export class Store extends Context.Service<
       addComment: true,
       findCommentByReplyToken: true,
       replyTokenOf: true,
+      listPublic: true,
       expiring: true,
     } satisfies Record<keyof Store["Service"], true>;
     return Layer.succeed(
@@ -312,6 +394,77 @@ export class Store extends Context.Service<
           const rows = yield* db.select().from(comments).where(eq(comments.replyToken, token));
           const row = rows[0];
           return row ? yield* decodeComment(commentInput(row)) : null;
+        }, Effect.orDie),
+
+        listPublic: Effect.fn("Store.listPublic")(function* ({ cursor, q, limit }) {
+          const visible = notInArray(videos.status, ["Expired", "Deleted"]);
+          const search =
+            q === null
+              ? undefined
+              : or(
+                  ilike(videos.title, likePattern(q)),
+                  exists(
+                    db
+                      .select({ one: sql`1` })
+                      .from(enrichments)
+                      .where(
+                        and(
+                          eq(enrichments.videoId, videos.id),
+                          eq(enrichments.kind, "transcript"),
+                          sql`${enrichments.result}::text ilike ${likePattern(q)}`,
+                        ),
+                      ),
+                  ),
+                );
+          const after =
+            cursor === null
+              ? undefined
+              : or(
+                  lt(videos.createdAt, new Date(cursor.createdAtMs)),
+                  and(eq(videos.createdAt, new Date(cursor.createdAtMs)), lt(videos.id, cursor.id)),
+                );
+          const rows = yield* db
+            .select()
+            .from(videos)
+            .where(and(visible, search, after))
+            .orderBy(desc(videos.createdAt), desc(videos.id))
+            .limit(limit + 1);
+          const [counted] = yield* db
+            .select({ total: count() })
+            .from(videos)
+            .where(and(visible, search));
+          const page = rows.slice(0, limit);
+          const ids = page.map((r) => r.id);
+          const commentCounts =
+            ids.length === 0
+              ? []
+              : yield* db
+                  .select({ videoId: comments.videoId, n: count() })
+                  .from(comments)
+                  .where(inArray(comments.videoId, ids))
+                  .groupBy(comments.videoId);
+          const enrichmentRows =
+            ids.length === 0
+              ? []
+              : yield* db.select().from(enrichments).where(inArray(enrichments.videoId, ids));
+          const entries = yield* Effect.forEach(page, (row) =>
+            Effect.gen(function* () {
+              return {
+                video: yield* toVideo(row),
+                comments: commentCounts.find((c) => c.videoId === row.id)?.n ?? 0,
+                enrichments: yield* Effect.forEach(
+                  enrichmentRows.filter((e) => e.videoId === row.id),
+                  (e) =>
+                    Effect.map(decodeStatus(e.status), (status) => ({
+                      kind: e.kind,
+                      status,
+                      result: e.result,
+                    })),
+                ),
+              };
+            }),
+          );
+          return { entries, more: rows.length > limit, total: counted?.total ?? 0 };
         }, Effect.orDie),
 
         expiring: Effect.fn("Store.expiring")(function* (limit) {

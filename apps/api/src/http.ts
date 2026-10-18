@@ -1,4 +1,4 @@
-import { DateTime, Effect, Layer, Option } from "effect";
+import { DateTime, Effect, Layer, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/http-api";
 import { HttpServerRequest } from "effect/http";
 import {
@@ -18,19 +18,12 @@ import {
   decodeResult,
   SuggestionsResult,
   SummaryResult,
+  ThumbnailResult,
   TranscriptResult,
   VideoView,
 } from "@clip/contract";
-import {
-  AdminKeys,
-  Live,
-  Notifications,
-  Pipeline,
-  RateLimits,
-  StreamVideos,
-  type StreamDetails,
-} from "@clip/platform";
-import { Store } from "@clip/db";
+import { AdminKeys, Live, Notifications, Pipeline, RateLimits, StreamVideos } from "@clip/platform";
+import { type EnrichmentRecord, type GalleryCursor, Store } from "@clip/db";
 import { Videos } from "./Videos.ts";
 
 const MAX_DURATION_SECONDS = 3600;
@@ -46,12 +39,37 @@ const clientKey = Effect.map(
   (request) => request.headers["cf-connecting-ip"] ?? "local",
 );
 
-const thumbnailUrl = (video: Video, details: StreamDetails) =>
+/** Miniature affichée : celle de Stream, ou l'instant choisi par le propriétaire. */
+const thumbnailUrl = (video: Video, base: string) =>
   Thumbnail.match(video.thumbnail, {
-    Auto: () => details.thumbnail,
-    Frame: ({ time }) => `${details.thumbnail}?time=${Math.floor(time)}s`,
+    Auto: () => base,
+    Frame: ({ time }) => `${base}?time=${Math.floor(time)}s`,
     Custom: ({ key }) => `/media/${key}`,
   });
+
+const GALLERY_PAGE_SIZE = 12;
+const thumbnailOf = decodeResult(ThumbnailResult);
+
+/** Curseur opaque de la galerie : `<createdAt ms>.<id>` de la dernière carte. */
+const encodeCursor = (video: Video) => `${video.createdAt.epochMilliseconds}.${video.id}`;
+const decodeVideoId = Schema.decodeUnknownOption(VideoId);
+const decodeCursor = (raw: string | undefined): GalleryCursor | null => {
+  const [ms, id] = raw?.split(".") ?? [];
+  const createdAtMs = Number(ms);
+  const videoId = decodeVideoId(id);
+  return Number.isFinite(createdAtMs) && Option.isSome(videoId)
+    ? { createdAtMs, id: videoId.value }
+    : null;
+};
+
+/** Toutes les étapes, `Pending` pour celles qui n'ont pas encore tourné. */
+const allSteps = (records: ReadonlyArray<EnrichmentRecord>) =>
+  Object.fromEntries(
+    KINDS.map((kind) => [
+      kind,
+      records.find((r) => r.kind === kind)?.status ?? EnrichmentStatus.cases.Pending.make({}),
+    ]),
+  ) as VideoView["enrichments"];
 
 export const VideosHandlers = HttpApiBuilder.group(
   ClipApi,
@@ -80,14 +98,9 @@ export const VideosHandlers = HttpApiBuilder.group(
         video,
         playback: Option.match(details, {
           onNone: () => null,
-          onSome: (d) => ({ hls: d.hls, thumbnail: thumbnailUrl(video, d) }),
+          onSome: (d) => ({ hls: d.hls, thumbnail: thumbnailUrl(video, d.thumbnail) }),
         }),
-        enrichments: Object.fromEntries(
-          KINDS.map((kind) => [
-            kind,
-            byKind.get(kind)?.status ?? EnrichmentStatus.cases.Pending.make({}),
-          ]),
-        ) as VideoView["enrichments"],
+        enrichments: allSteps(records),
         summary: Option.match(summary, { onNone: () => null, onSome: (s) => s.summary }),
         chapters: Option.match(summary, { onNone: () => [], onSome: (s) => s.chapters }),
         language: Option.getOrNull(Option.flatMap(stored, (t) => Option.fromNullishOr(t.language))),
@@ -107,6 +120,45 @@ export const VideosHandlers = HttpApiBuilder.group(
     });
 
     return handlers.handleAll({
+      list: ({ query }) =>
+        Effect.gen(function* () {
+          const q = query.q?.trim() || null;
+          const page = yield* store.listPublic({
+            cursor: decodeCursor(query.cursor),
+            q,
+            limit: GALLERY_PAGE_SIZE,
+          });
+          const last = page.entries.at(-1)?.video;
+          // Miniature lue en base ; les vidéos d'avant l'enregistrement de l'URL la
+          // demandent encore à Stream (une fois par carte, seulement pour elles).
+          const thumbnailFor = (video: Video, enrichments: ReadonlyArray<EnrichmentRecord>) =>
+            Option.match(thumbnailOf(enrichments.find((e) => e.kind === "thumbnail")?.result), {
+              onSome: (t) => Effect.succeed<string | null>(thumbnailUrl(video, t.url)),
+              onNone: () =>
+                video.status._tag === "Ready"
+                  ? Effect.map(stream.details(video.streamUid), (d) =>
+                      thumbnailUrl(video, d.thumbnail),
+                    )
+                  : Effect.succeed(null),
+            });
+          const items = yield* Effect.forEach(
+            page.entries,
+            ({ video, comments, enrichments }) =>
+              Effect.map(thumbnailFor(video, enrichments), (thumbnail) => ({
+                video,
+                comments,
+                enrichments: allSteps(enrichments),
+                thumbnail,
+              })),
+            { concurrency: 4 },
+          );
+          return {
+            items,
+            nextCursor: page.more && last ? encodeCursor(last) : null,
+            total: page.total,
+          };
+        }),
+
       create: ({ payload }) =>
         Effect.gen(function* () {
           yield* limits.check("create", yield* clientKey);
