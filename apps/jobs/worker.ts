@@ -44,7 +44,8 @@ export const jobsWorker = (mode: string | undefined, containers = withContainers
         s.email && bindings.sendEmail({ allowedSenderAddresses: [`notifications@${s.domain}`] }),
       DOMAIN: bindings.text(s.domain),
       // RPC interne vers clip-api (entrypoint `Internal`).
-      API: bindings.worker({ worker: s.names.api, exportName: "Internal" }),
+      // Absent seulement le temps du premier déploiement d'une PR (`bootstrap`).
+      API: !s.bootstrap && bindings.worker({ worker: s.names.api, exportName: "Internal" }),
       STORYBOARD: bindings.durableObject({ worker: name, exportName: "Storyboard" }),
     },
     exports: {

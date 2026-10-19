@@ -14,7 +14,12 @@ export class InternalApi extends Context.Service<
   InternalApi,
   RpcClient.FromGroup<typeof InternalRpcs, RpcClientError.RpcClientError>
 >()("@clip/platform/InternalApi") {
-  static readonly layer = (binding: Fetcher) =>
+  /** clip-api pas encore déployé (premier déploiement d'une PR) : la RPC répond 503. */
+  static readonly unavailable: Pick<Fetcher, "fetch"> = {
+    fetch: () => Promise.resolve(new Response("clip-api indisponible", { status: 503 })),
+  };
+
+  static readonly layer = (binding: Pick<Fetcher, "fetch">) =>
     Layer.effect(InternalApi, RpcClient.make(InternalRpcs)).pipe(
       Layer.provide(RpcClient.layerProtocolHttp({ url: `https://api${INTERNAL_RPC_PATH}` })),
       Layer.provide([RpcSerialization.layerJson, FetchHttpClient.layer]),
