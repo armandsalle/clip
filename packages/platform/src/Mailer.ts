@@ -42,6 +42,16 @@ export class Mailer extends Context.Service<
       }),
     );
 
+  /** Envoi coupé (environnements de PR) : l'email est journalisé, jamais envoyé. */
+  static readonly layerDisabled = (domain: string) =>
+    Layer.succeed(
+      Mailer,
+      Mailer.of({
+        domain,
+        send: (email) => Effect.logInfo("mail.skipped", { subject: email.subject }),
+      }),
+    );
+
   /** Garde les emails envoyés, pour les tests. */
   static readonly layerRecorder = (domain = "clip.test") =>
     Layer.sync(Mailer, () => {

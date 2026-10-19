@@ -1,0 +1,21 @@
+# Base Postgres locale pour le dev (`docker compose up -d --wait`). Même version
+# majeure que Neon. Port 5433 pour ne pas gêner un Postgres déjà installé sur 5432.
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: clip
+      POSTGRES_PASSWORD: clip
+      POSTGRES_DB: clip
+    ports:
+      - "5433:5432"
+    volumes:
+      - clip-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U clip -d clip"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+volumes:
+  clip-db:

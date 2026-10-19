@@ -9,9 +9,10 @@ export default defineConfig(({ mode }) => {
       name: s.names.web,
       entrypoint,
       ...runtime,
-      // Seul Worker exposé : production sur clipshare.dev, previews sur ses sous-domaines.
-      ...(s.production && {
-        domains: [{ hostname: s.domain, production: true, previews: true }],
+      // Seul Worker exposé : production sur clipshare.dev (previews sur ses
+      // sous-domaines), environnement de PR sur pr-<n>.clipshare.dev.
+      ...(s.hostname !== null && {
+        domains: [{ hostname: s.hostname, production: true, previews: s.production }],
       }),
       assets: {
         notFoundHandling: "single-page-application",

@@ -39,7 +39,9 @@ export const jobsWorker = (mode: string | undefined, containers = withContainers
         },
       }),
       AI: s.remote && bindings.ai({ dev: { remote: true } }),
-      MAIL: bindings.sendEmail({ allowedSenderAddresses: [`notifications@${s.domain}`] }),
+      // Coupé en PR : les emails sont seulement journalisés (Mailer.layerDisabled).
+      MAIL:
+        s.email && bindings.sendEmail({ allowedSenderAddresses: [`notifications@${s.domain}`] }),
       DOMAIN: bindings.text(s.domain),
       // RPC interne vers clip-api (entrypoint `Internal`).
       API: bindings.worker({ worker: s.names.api, exportName: "Internal" }),

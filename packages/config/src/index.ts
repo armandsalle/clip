@@ -4,16 +4,50 @@ import { fileURLToPath } from "node:url";
 // `cloudflare.config.ts` et par le `vite.config.ts` de web (dev local multi-Workers).
 // Un seul endroit pour les noms, les ressources partagées et les modes.
 
-// Variables Neon (`neon deploy` / `neon env pull`) : lues ici, car cf ne lit pas les .env.
+// Base de dev (`.env.local`, cf. CONTRIBUTING.md) : lue ici, car cf ne lit pas les .env.
+// Les variables déjà définies (CI, ligne de commande) l'emportent.
 try {
   process.loadEnvFile(fileURLToPath(new URL("../../../.env.local", import.meta.url).href));
 } catch {
   // pas de .env.local : stockage en mémoire par défaut
 }
 
+/** Base locale Docker (`docker compose up -d`, voir compose.yaml). */
+export const LOCAL_DATABASE_URL = "postgres://clip:clip@localhost:5433/clip";
+
+/** Environnement éphémère d'une PR : `pr-<numéro>`. */
+export const isPreviewMode = (mode: string) => /^pr-\d+$/.test(mode);
+
+let warnedProductionDb = false;
+
+/**
+ * URL de base pour le dev et les scripts (seed, migrations). Une URL de la branche
+ * Neon `production` (ancien `.env.local` tiré par `neon env pull`) est ignorée hors
+ * production, sauf CLIP_ALLOW_PRODUCTION_DB=1 : le dev local ne touche jamais la prod
+ * par mégarde.
+ */
+export const databaseUrl = (production: boolean): string | undefined => {
+  const url = process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL;
+  const isProductionBranch =
+    process.env.NEON_BRANCH === "production" && url !== undefined && url.includes(".neon.tech");
+  if (url && isProductionBranch && !production && process.env.CLIP_ALLOW_PRODUCTION_DB !== "1") {
+    if (!warnedProductionDb) {
+      warnedProductionDb = true;
+      console.warn(
+        "[clip] .env.local pointe sur la branche Neon « production » : ignorée en dev " +
+          "(stockage en mémoire). Voir CONTRIBUTING.md pour une base locale.",
+      );
+    }
+    return undefined;
+  }
+  return url;
+};
+
 export const ACCOUNT_ID = "cf7f360cd85645322d03de3ffb22249e";
 /** Secrets Store du compte : prod, previews et environnements de PR s'y branchent. */
 export const SECRETS_STORE_ID = "1ef90d01875a4f5baaea375be4e6b0ad";
+/** Projet Neon (eu-central-1) : branche `production`, `pr-<n>` par PR, `dev-<prénom>` par développeur. */
+export const NEON_PROJECT_ID = "curly-brook-93036842";
 /** Config Hyperdrive « clip-neon » (connexion directe vers Neon, eu-central-1, sans cache). */
 export const HYPERDRIVE_ID = "db72ca80c92e4ba5978e21c0e2121ae8";
 
@@ -46,7 +80,13 @@ export interface Settings {
   readonly remote: boolean;
   /** Domaine de l'app, de l'envoi d'emails et des réponses par email. */
   readonly domain: string;
-  /** La règle de réception exige Email Routing actif sur le domaine. */
+  /** `pr-<n>` : environnement éphémère d'une PR (domaine `pr-<n>.<domaine>`). */
+  readonly preview: boolean;
+  /** Nom d'hôte public de clip-web (production et PR), `null` en dev. */
+  readonly hostname: string | null;
+  /** Envoi d'emails (Email Service) : coupé en PR, où les notifications sont seulement journalisées. */
+  readonly email: boolean;
+  /** La règle de réception exige Email Routing actif sur le domaine (jamais en PR : elle volerait celle de la prod). */
   readonly emailRouting: boolean;
   /** Webhook Stream « vidéo prête » (unique par compte → production seulement). */
   readonly webhook: boolean;
@@ -57,29 +97,52 @@ export interface Settings {
   readonly chaos: string;
 }
 
+/** Noms des Workers et des ressources d'un mode (sans lire l'environnement). */
+export const resourceNames = (mode: string) => {
+  const suffix = mode === "production" ? "" : `-${mode}`;
+  return {
+    /** Workers : `clip-api` en production, `clip-api-<mode>` sinon. */
+    workers: { web: `clip-web${suffix}`, api: `clip-api${suffix}`, jobs: `clip-jobs${suffix}` },
+    notifications: `clip-notifications${suffix}`,
+    pipeline: `clip-pipeline${suffix}`,
+    // Nom historique : le bucket contient déjà les miniatures personnalisées.
+    media: `clip-api${suffix}-media`,
+    /** Config Hyperdrive d'un environnement de PR (la production a `clip-neon`). */
+    hyperdrive: `clip-neon${suffix}`,
+  };
+};
+
 export const settings = (mode: string | undefined): Settings => {
   // `cf dev` ne passe pas de mode et Vite passe « development » : tous deux valent « dev ».
   const m = !mode || mode === "development" ? "dev" : mode;
   const production = m === "production";
-  const suffix = production ? "" : `-${m}`;
-  const databaseUrl = process.env.DATABASE_URL_UNPOOLED ?? process.env.DATABASE_URL;
+  const preview = isPreviewMode(m);
+  const n = resourceNames(m);
+  const url = databaseUrl(production);
+  const domain = process.env.CLIP_DOMAIN ?? "clipshare.dev";
+  const hyperdriveId = process.env.CLIP_HYPERDRIVE_ID ?? (preview ? undefined : HYPERDRIVE_ID);
+  if (hyperdriveId === undefined) {
+    // Sans Hyperdrive propre, une PR se brancherait sur la base de production.
+    throw new Error(
+      `[clip] mode ${m} : CLIP_HYPERDRIVE_ID (Hyperdrive de la branche Neon ${m}) manquant`,
+    );
+  }
   return {
     mode: m,
     production,
-    names: { web: `clip-web${suffix}`, api: `clip-api${suffix}`, jobs: `clip-jobs${suffix}` },
-    resources: {
-      notifications: `clip-notifications${suffix}`,
-      pipeline: `clip-pipeline${suffix}`,
-      // Nom historique : le bucket contient déjà les miniatures personnalisées.
-      media: `clip-api${suffix}-media`,
-    },
+    names: n.workers,
+    resources: { notifications: n.notifications, pipeline: n.pipeline, media: n.media },
     remote: production || process.env.CLIP_REMOTE === "1",
-    domain: process.env.CLIP_DOMAIN ?? "clipshare.dev",
-    emailRouting: process.env.CLIP_EMAIL_ROUTING !== "0",
+    domain,
+    preview,
+    hostname: production ? domain : preview ? `${m}.${domain}` : null,
+    email: !preview && process.env.CLIP_EMAIL !== "0",
+    emailRouting: !preview && process.env.CLIP_EMAIL_ROUTING !== "0",
     webhook: production && process.env.CLIP_STREAM_WEBHOOK !== "0",
-    databaseUrl,
-    store: process.env.CLIP_STORE === "memory" || !databaseUrl ? "memory" : "postgres",
-    hyperdriveId: process.env.CLIP_HYPERDRIVE_ID ?? HYPERDRIVE_ID,
+    databaseUrl: url,
+    // Une PR a toujours sa base (branche Neon pr-<n>) : jamais de stockage en mémoire.
+    store: !preview && (process.env.CLIP_STORE === "memory" || !url) ? "memory" : "postgres",
+    hyperdriveId,
     chaos: process.env.CLIP_CHAOS ?? "0",
   };
 };

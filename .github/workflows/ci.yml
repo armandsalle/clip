@@ -1,0 +1,112 @@
+# Vérifications à chaque PR et sur main ; environnement éphémère par PR ; déploiement
+# de la production sur main. Secrets (créés à la main, cf. CONTRIBUTING.md) :
+# CLOUDFLARE_API_TOKEN (token à permissions limitées) et NEON_API_KEY.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CF_SEND_TELEMETRY: "false"
+  # Identifiant du compte (non secret, déjà dans packages/config).
+  CLOUDFLARE_ACCOUNT_ID: cf7f360cd85645322d03de3ffb22249e
+
+jobs:
+  check:
+    name: Vérifications
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: voidzero-dev/setup-vp@v1.21.2
+        with:
+          node-version: "24"
+          cache: true
+      # Types Env générés depuis cloudflare.config.ts (.cloudflare/ n'est pas versionné).
+      - run: vp run -r types
+      - run: vp check
+      - run: vp run -r test
+
+  preview:
+    name: Environnement de PR
+    needs: check
+    # Jamais pour une PR venue d'un fork : elle n'a pas accès aux secrets.
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: write
+    # Un seul déploiement à la fois par PR, jamais interrompu (ressources à moitié créées).
+    concurrency:
+      group: pr-env-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: voidzero-dev/setup-vp@v1.21.2
+        with:
+          node-version: "24"
+          cache: true
+      # ffmpeg génère les vidéos de démo du seed (lecteur non vide).
+      - run: command -v ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg)
+      - id: env
+        run: vp run pr:up ${{ github.event.pull_request.number }}
+      - run: vp run smoke ${{ steps.env.outputs.url }}
+      - name: Commentaire sur la PR
+        if: always()
+        uses: actions/github-script@v9
+        env:
+          URL: ${{ steps.env.outputs.url }}
+          OUTCOME: ${{ job.status }}
+        with:
+          script: |
+            const marker = "<!-- clip-pr-env -->";
+            const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const sha = context.payload.pull_request.head.sha.slice(0, 7);
+            const body = process.env.OUTCOME === "success"
+              ? `${marker}\n### Environnement de PR prêt\n\n${process.env.URL}\n\nCommit ${sha} · test de fumée vert · [journal](${run})\n\nTrois Workers \`*-pr-${context.issue.number}\`, branche Neon \`pr-${context.issue.number}\` (vidéos de démo), faux Stream et IA factice, emails coupés. Tout est supprimé à la fermeture de la PR.`
+              : `${marker}\n### Environnement de PR en échec\n\nCommit ${sha} · [journal](${run})`;
+            const { data: comments } = await github.rest.issues.listComments({ ...context.repo, issue_number: context.issue.number, per_page: 100 });
+            const existing = comments.find((c) => c.body?.includes(marker));
+            if (existing) await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
+            else await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
+
+  production:
+    name: Production
+    needs: check
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: production
+      url: https://clipshare.dev
+    concurrency:
+      group: production
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: voidzero-dev/setup-vp@v1.21.2
+        with:
+          node-version: "24"
+          cache: true
+      - run: vp run db:migrate:production
+      # Dans cet ordre : jobs porte le Workflow et la Queue qu'api référence, api le RPC
+      # et les rooms que web relaie. Le Container de jobs se construit avec le Docker du runner.
+      - run: vp run @clip/jobs#deploy
+      - run: vp run @clip/api#deploy
+      - run: vp run @clip/web#deploy
+      - run: curl --fail --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors https://clipshare.dev/api/health

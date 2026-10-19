@@ -19,6 +19,7 @@
     "effect": "catalog:"
   },
   "devDependencies": {
+    "@clip/config": "workspace:*",
     "@cloudflare/workers-types": "catalog:",
     "@effect/sql-pglite": "catalog:",
     "@effect/vitest": "catalog:",

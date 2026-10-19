@@ -20,5 +20,16 @@ export default defineConfig({
   },
   run: {
     cache: true,
+    // Commandes à effets de bord (base, comptes Cloudflare et Neon) : jamais en cache,
+    // et l'environnement complet leur est transmis.
+    tasks: {
+      "db:up": { command: "docker compose up -d --wait", cache: false },
+      "db:migrate": { command: "vp exec drizzle-kit migrate", cwd: "packages/db", cache: false },
+      "db:seed": { command: "node scripts/seed.ts", cwd: "packages/db", cache: false },
+      "db:migrate:production": { command: "node scripts/migrate-production.ts", cache: false },
+      "pr:up": { command: "node scripts/pr-env.ts up", cache: false },
+      "pr:down": { command: "node scripts/pr-env.ts down", cache: false },
+      smoke: { command: "node scripts/smoke.ts", cache: false },
+    },
   },
 });

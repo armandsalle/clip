@@ -253,6 +253,9 @@ importers:
 
   .:
     devDependencies:
+      '@clip/config':
+        specifier: workspace:*
+        version: link:packages/config
       '@effect/tsgo':
         specifier: 'catalog:'
         version: 0.53.3
@@ -262,6 +265,9 @@ importers:
       '@neon/env':
         specifier: 'catalog:'
         version: 1.6.3
+      '@types/node':
+        specifier: 'catalog:'
+        version: 24.19.2
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -474,6 +480,9 @@ importers:
         specifier: 'catalog:'
         version: 4.0.5
     devDependencies:
+      '@clip/config':
+        specifier: workspace:*
+        version: link:../config
       '@cloudflare/workers-types':
         specifier: 'catalog:'
         version: 5.20261012.1
