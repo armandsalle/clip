@@ -1,5 +1,5 @@
 import { bindings, defineWorker, exports } from "cf/config";
-import { ACCOUNT_ID, runtime, SECRETS_STORE_ID, settings } from "@clip/config";
+import { ACCOUNT_ID, NEAR_DATABASE, runtime, SECRETS_STORE_ID, settings } from "@clip/config";
 
 /**
  * clip-api : API publique (derrière clip-web), RPC interne, rooms temps réel. Pas de
@@ -13,6 +13,7 @@ export const apiWorker = (mode: string | undefined) => {
     name,
     ...runtime,
     workersDev: false,
+    placement: NEAR_DATABASE,
     env: {
       STORE: bindings.text(s.store),
       REMOTE: bindings.text(s.remote ? "1" : "0"),
