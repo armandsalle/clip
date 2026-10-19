@@ -1,34 +1,51 @@
-// Environnement éphémère d'une pull request : `vp run pr:up <n>` / `vp run pr:down <n>`.
+// Environnements déployés hors production (`vp run pr:up <n>`, `pr:preview <n>`,
+// `pr:down <n>`, `staging:up`).
 //
-// up   : branche Neon pr-<n> (TTL 7 j) → migrations → Hyperdrive clip-neon-pr-<n> →
-//        Queue clip-notifications-pr-<n> → déploiement clip-jobs, clip-api, clip-web
-//        (mode pr-<n>, dans cet ordre) → base vidée et vidéos de démo. Rejouable : chaque
-//        étape réutilise ce qui existe déjà.
-// down : supprime tout ce que `up` a créé (Workers, Workflow, Queue, bucket R2, Hyperdrive,
-//        branche Neon). Rejouable : une ressource absente est ignorée.
+// up <n>       : environnement complet d'une PR serveur. Branche Neon pr-<n> (TTL 7 j) →
+//                migrations → Hyperdrive clip-neon-pr-<n> → Queue clip-notifications-pr-<n>
+//                → déploiement clip-jobs, clip-api, clip-web (mode pr-<n>, dans cet ordre).
+//                La Preview pr-<n> d'une ancienne version « interface » est d'abord
+//                supprimée : elle occupait pr-<n>.clipshare.dev.
+// preview <n>  : PR d'interface. Preview `pr-<n>` de clip-web, branchée sur le staging
+//                (clip-api-staging). Une PR qui a déjà son environnement complet le garde :
+//                `preview` fait alors un `up`.
+// down <n>     : supprime la Preview et tout ce que `up` a créé (Workers, Workflow, Queue,
+//                bucket R2, Hyperdrive, branche Neon). Une ressource absente est ignorée.
+// up staging   : staging permanent. Même chaîne que `up <n>` sur la branche Neon `staging`
+//                (sans expiration), puis la Preview `staging` de clip-web.
 //
-// Le mode pr-<n> utilise le vrai Stream et la vraie IA, comme la production : chaque
-// vidéo Stream est étiquetée `clip-pr-<n>` (créateur), clip-hooks lui relaie le webhook
-// « vidéo prête ». Emails, Email Routing et Container sont coupés (voir packages/config).
+// Toutes les étapes sont rejouables : chacune réutilise ce qui existe déjà. Staging et PR
+// utilisent le vrai Stream et la vraie IA : chaque vidéo est étiquetée `clip-<mode>`
+// (créateur), clip-hooks lui relaie le webhook « vidéo prête ». Emails, Email Routing et
+// Container sont coupés (voir packages/config).
 //
 // Variables : CLOUDFLARE_API_TOKEN (ou `cf auth login`), NEON_API_KEY. Aucune valeur
 // secrète n'est affichée : le mot de passe de la branche est masqué dans GitHub Actions.
 import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { ACCOUNT_ID, resourceNames, streamCreator } from "@clip/config";
+import { ACCOUNT_ID, resourceNames, STAGING, streamCreator, WORKERS_SUBDOMAIN } from "@clip/config";
 import { connectionUri, createBranch, deleteBranch, findBranch } from "./neon.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url).href);
-const [action, pr] = process.argv.slice(2);
-if ((action !== "up" && action !== "down") || !pr || !/^\d+$/.test(pr)) {
-  console.error("Usage : node scripts/pr-env.ts up|down <numéro de PR>");
+const [action, target] = process.argv.slice(2);
+const staging = target === STAGING;
+if (
+  (action !== "up" && action !== "down" && action !== "preview") ||
+  !target ||
+  !(/^\d+$/.test(target) || (staging && action === "up"))
+) {
+  console.error("Usage : node scripts/env.ts up|preview|down <numéro de PR>  |  up staging");
   process.exit(1);
 }
-const mode = `pr-${pr}`;
+const mode = staging ? STAGING : `pr-${target}`;
 const names = resourceNames(mode);
+const web = resourceNames("production").workers.web;
 const domain = process.env.CLIP_DOMAIN ?? "clipshare.dev";
 const url = `https://${mode}.${domain}`;
+/** URL workers.dev d'une Preview de clip-web (hors du Bot Fight Mode de la zone). */
+const previewWorkersDev = (name: string) =>
+  `https://${name}-${web}.${WORKERS_SUBDOMAIN}.workers.dev`;
 
 const step = (title: string) => console.log(`\n▸ ${title}`);
 
@@ -201,10 +218,45 @@ const waitForHealth = async (base: string) => {
 
 // Actions ----------------------------------------------------------------------------------
 
+/** Sorties pour GitHub Actions : adresse publique, adresse de la CI, type d'environnement. */
+const output = (values: { url: string; ciUrl: string; kind: "complet" | "interface" }) => {
+  console.log(`\n✓ ${values.url} (CI : ${values.ciUrl})`);
+  if (process.env.GITHUB_OUTPUT) {
+    appendFileSync(
+      process.env.GITHUB_OUTPUT,
+      `url=${values.url}\nci_url=${values.ciUrl}\nkind=${values.kind}\n`,
+    );
+  }
+};
+
+/**
+ * Preview de clip-web : le code du site de la branche, avec la config de production
+ * évaluée en `isPreview` (API → clip-api-staging, voir apps/web/cloudflare.config.ts).
+ * Servie sur `<nom>.clipshare.dev` et sur workers.dev.
+ */
+const deployPreview = async (name: string) => {
+  step(`Preview ${name} de ${web} (branchée sur ${resourceNames(STAGING).workers.api})`);
+  console.log(cf(["previews", "deploy", name, "--mode", "production"], { app: "web" }));
+  const ciUrl = previewWorkersDev(name);
+  step(`Attente de ${ciUrl}`);
+  await waitForHealth(ciUrl);
+  return ciUrl;
+};
+
+const deletePreview = (name: string) =>
+  attempt(`Preview ${name}`, () => cf(["previews", "delete", name, "--worker", web]));
+
 const up = async () => {
+  if (!staging) {
+    // Ancienne Preview « interface » de la PR : elle libère pr-<n>.clipshare.dev.
+    step(`Preview ${mode}`);
+    deletePreview(mode);
+  }
+
   step(`Branche Neon ${mode}`);
   const existing = await findBranch(mode);
-  const branch = existing ?? (await createBranch(mode, { ttlDays: 7 }));
+  // Le staging est permanent : sa branche n'expire pas.
+  const branch = existing ?? (await createBranch(mode, staging ? {} : { ttlDays: 7 }));
   const db = await connectionUri(branch);
   const dbEnv = { DATABASE_URL: db.href, DATABASE_URL_UNPOOLED: db.href };
 
@@ -217,8 +269,8 @@ const up = async () => {
 
   if (existing === null) {
     // Branche neuve, copiée de la prod : vidée une fois, juste après les migrations (les
-    // pushs suivants gardent les vidéos déposées pendant la revue).
-    step("Base de la PR vidée");
+    // déploiements suivants gardent les vidéos déposées).
+    step(`Base ${mode} vidée`);
     execFileSync("node", ["scripts/seed.ts", "--reset", "--no-demo"], {
       cwd: `${root}packages/db`,
       env: { ...baseEnv(), ...dbEnv },
@@ -241,10 +293,13 @@ const up = async () => {
   const deploy = (app: "jobs" | "api" | "web", bootstrap = false) => {
     step(`Déploiement de ${names.workers[app]}${bootstrap ? " (amorce, sans RPC)" : ""}`);
     try {
-      const out = cf(["deploy", "--mode", mode, "--message", `PR #${pr}`], {
-        app,
-        env: { ...deployEnv, CLIP_BOOTSTRAP: bootstrap ? "1" : "0" },
-      });
+      const out = cf(
+        ["deploy", "--mode", mode, "--message", staging ? "staging" : `PR #${target}`],
+        {
+          app,
+          env: { ...deployEnv, CLIP_BOOTSTRAP: bootstrap ? "1" : "0" },
+        },
+      );
       console.log(out);
       return out;
     } catch (error) {
@@ -258,6 +313,12 @@ const up = async () => {
   const firstDeploy = !workerExists(names.workers.api);
   deploy("jobs", firstDeploy);
   deploy("api");
+  if (staging) {
+    if (firstDeploy) deploy("jobs");
+    // Pas de clip-web-staging : le site du staging est la Preview `staging` de clip-web.
+    output({ url, ciUrl: await deployPreview(STAGING), kind: "complet" });
+    return;
+  }
   // URL workers.dev de clip-web, affichée par `cf deploy` : celle que la CI utilise, car
   // le Bot Fight Mode de la zone bloque les runners sur pr-<n>.clipshare.dev.
   const ciUrl = /https:\/\/[\w.-]+\.workers\.dev/.exec(deploy("web"))?.[0] ?? url;
@@ -265,11 +326,16 @@ const up = async () => {
 
   step(`Attente de ${ciUrl}`);
   await waitForHealth(ciUrl);
+  output({ url, ciUrl, kind: "complet" });
+};
 
-  console.log(`\n✓ ${url} (CI : ${ciUrl})`);
-  if (process.env.GITHUB_OUTPUT) {
-    appendFileSync(process.env.GITHUB_OUTPUT, `url=${url}\nci_url=${ciUrl}\n`);
+/** PR d'interface : Preview sur le staging, sauf si la PR a déjà son environnement complet. */
+const preview = async () => {
+  if (workerExists(names.workers.api)) {
+    console.log(`${names.workers.api} existe : la PR garde son environnement complet.`);
+    return up();
   }
+  output({ url, ciUrl: await deployPreview(mode), kind: "interface" });
 };
 
 interface StreamVideo {
@@ -296,6 +362,9 @@ const deleteStreamVideos = () => {
 };
 
 const down = async () => {
+  step(`Preview ${mode}`);
+  deletePreview(mode);
+
   step(`Vidéos Stream (créateur ${streamCreator(mode)})`);
   attempt("vidéos Stream", deleteStreamVideos);
 
@@ -342,4 +411,4 @@ const down = async () => {
   console.log(`\n✓ environnement ${mode} supprimé`);
 };
 
-await (action === "up" ? up() : down());
+await (action === "up" ? up() : action === "preview" ? preview() : down());

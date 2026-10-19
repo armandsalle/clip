@@ -2,7 +2,7 @@
 
 Clip est une démo « à la Grain » 100 % Cloudflare : on dépose une vidéo, sans compte, et elle devient un stream avec transcription, résumé, chapitres, miniatures, commentaires horodatés en direct et questions-réponses. Le produit (flows, UX, écrans) est décrit dans [PRODUCT.md](PRODUCT.md). Ce document décrit la tech.
 
-État au 2026-10-19 : déployé sur https://clipshare.dev en trois Workers (`clip-web`, `clip-api`, `clip-jobs`), plus le routeur de webhooks `clip-hooks`. Parcours complet vérifié en ligne : upload Stream, transcription, titre/résumé/chapitres, Neon via Hyperdrive. Chaque PR a son environnement éphémère (`pr-<n>.clipshare.dev`) ; `main` se déploie par la CI. Prise en main et conventions : [CONTRIBUTING.md](../CONTRIBUTING.md).
+État au 2026-10-19 : déployé sur https://clipshare.dev en trois Workers (`clip-web`, `clip-api`, `clip-jobs`), plus le routeur de webhooks `clip-hooks`. Parcours complet vérifié en ligne : upload Stream, transcription, titre/résumé/chapitres, Neon via Hyperdrive. Chaque PR a son environnement sur `pr-<n>.clipshare.dev` : une Preview de clip-web branchée sur le staging pour une PR d'interface, un environnement complet sinon. `main` se déploie par la CI, sur le staging puis en production. Prise en main et conventions : [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Stack et versions
 
@@ -60,6 +60,7 @@ Stream n'accepte qu'un webhook par compte, enregistré sur `https://clipshare.de
 | Créateur Stream              | Destination                                                   |
 | ---------------------------- | ------------------------------------------------------------- |
 | `clip-production` (ou aucun) | `clip-api`, par service binding                               |
+| `clip-staging`               | `clip-api-staging`, par service binding                       |
 | `clip-pr-<n>`                | `clip-web-pr-<n>.armand-salle.workers.dev/api/stream/webhook` |
 | autre (`clip-dev`…)          | ignoré (Stream ne peut pas joindre localhost ; le dev sonde)  |
 
@@ -92,7 +93,7 @@ apps/api/            clip-api : worker.ts (bindings), src/index.ts (composition)
                      internal.ts (RPC), Videos.ts (seul écrivain), room.ts (VideoRoom)
 apps/jobs/           clip-jobs : worker.ts, src/index.ts (Workflow, queue, email, Cron),
                      pipeline.ts (étapes testables sans Workflow), containers/storyboard/
-scripts/             pr-env.ts (environnements de PR), smoke.ts, neon.ts, migrate-production.ts
+scripts/             env.ts (staging et environnements de PR), smoke.ts, neon.ts, migrate-production.ts
 compose.yaml         Postgres 17 local (dev)
 ```
 
@@ -187,13 +188,16 @@ Tout vit sur le domaine dédié `clipshare.dev` (acheté chez Cloudflare Registr
 
 `settings(mode)` (`packages/config`) dérive tout du mode passé à `cf` :
 
-| Mode         | Workers                             | Base                                                                  | Stream, IA                                      | Emails  | Domaine                |
-| ------------ | ----------------------------------- | --------------------------------------------------------------------- | ----------------------------------------------- | ------- | ---------------------- |
-| `dev`        | `clip-*-dev` (local, `cf dev`)      | `.env.local` : Postgres Docker ou branche Neon `dev-*`, sinon mémoire | faux (R2), factice ; vrais avec `CLIP_REMOTE=1` | simulés | localhost:5173         |
-| `pr-<n>`     | `clip-*-pr-<n>`                     | branche Neon `pr-<n>` via Hyperdrive `clip-neon-pr-<n>`               | vrais (vidéos `clip-pr-<n>`)                    | coupés  | `pr-<n>.clipshare.dev` |
-| `production` | `clip-web`, `clip-api`, `clip-jobs` | branche Neon `production` via Hyperdrive `clip-neon`                  | vrais                                           | actifs  | `clipshare.dev`        |
+| Mode         | Workers                                                                          | Base                                                                  | Stream, IA                                      | Emails  | Domaine                 |
+| ------------ | -------------------------------------------------------------------------------- | --------------------------------------------------------------------- | ----------------------------------------------- | ------- | ----------------------- |
+| `dev`        | `clip-*-dev` (local, `cf dev`)                                                   | `.env.local` : Postgres Docker ou branche Neon `dev-*`, sinon mémoire | faux (R2), factice ; vrais avec `CLIP_REMOTE=1` | simulés | localhost:5173          |
+| `pr-<n>`     | `clip-*-pr-<n>`                                                                  | branche Neon `pr-<n>` via Hyperdrive `clip-neon-pr-<n>`               | vrais (vidéos `clip-pr-<n>`)                    | coupés  | `pr-<n>.clipshare.dev`  |
+| `staging`    | `clip-api-staging`, `clip-jobs-staging` ; site : Preview `staging` de `clip-web` | branche Neon `staging` via Hyperdrive `clip-neon-staging`             | vrais (vidéos `clip-staging`)                   | coupés  | `staging.clipshare.dev` |
+| `production` | `clip-web`, `clip-api`, `clip-jobs`                                              | branche Neon `production` via Hyperdrive `clip-neon`                  | vrais                                           | actifs  | `clipshare.dev`         |
 
-Ressources nommées par mode : Queue `clip-notifications[-<mode>]`, Workflow `clip-pipeline[-<mode>]`, bucket `clip-api[-<mode>]-media`. La Queue doit exister avant le déploiement (`cf queues create`) ; le Workflow, le bucket et les Durable Objects sont créés par `cf deploy`. En mode `pr-<n>`, `CLIP_HYPERDRIVE_ID` est obligatoire : sans lui, la config refuse de construire (une PR ne doit jamais se brancher sur la base de production).
+Ressources nommées par mode : Queue `clip-notifications[-<mode>]`, Workflow `clip-pipeline[-<mode>]`, bucket `clip-api[-<mode>]-media`. La Queue doit exister avant le déploiement (`cf queues create`) ; le Workflow, le bucket et les Durable Objects sont créés par `cf deploy`. En modes `staging` et `pr-<n>`, `CLIP_HYPERDRIVE_ID` est obligatoire : sans lui, la config refuse de construire (ils ne doivent jamais se brancher sur la base de production).
+
+**Previews de clip-web.** `cf previews deploy <nom>` (depuis `apps/web`, en mode `production`) publie le site de la branche sous le Worker clip-web, sur `<nom>.clipshare.dev` et `<nom>-clip-web.armand-salle.workers.dev`. La config évaluée avec `isPreview` branche `API` sur `clip-api-staging`. Le site du staging (`staging`) et ceux des PR d'interface (`pr-<n>`) sont des Previews. Elles n'ont ni Durable Object, ni secret, ni ressource propre.
 
 | Variable                   | Défaut                                | Effet                                                                      |
 | -------------------------- | ------------------------------------- | -------------------------------------------------------------------------- |
@@ -201,10 +205,10 @@ Ressources nommées par mode : Queue `clip-notifications[-<mode>]`, Workflow `cl
 | `CLIP_ALLOW_PRODUCTION_DB` | non défini                            | `1` : accepte la branche `production` hors prod (migrations de la CI)      |
 | `CLIP_STORE`               | `postgres` si une URL est disponible  | `memory` force le stockage en mémoire (dev)                                |
 | `CLIP_REMOTE`              | non défini                            | `1` : vrai Stream, Workers AI, AI Search, Flagship en dev                  |
-| `CLIP_HYPERDRIVE_ID`       | `clip-neon` (prod et dev)             | Hyperdrive à utiliser ; obligatoire en `pr-<n>`                            |
-| `CLIP_EMAIL`               | actif, sauf en `pr-<n>`               | `0` coupe l'envoi d'emails (journalisés seulement)                         |
-| `CLIP_EMAIL_ROUTING`       | actif, sauf en `pr-<n>`               | `0` retire la règle de réception `reply@`                                  |
-| `CLIP_STREAM_WEBHOOK`      | actif en production et en PR          | `0` : sondage de l'encodage seulement                                      |
+| `CLIP_HYPERDRIVE_ID`       | `clip-neon` (prod et dev)             | Hyperdrive à utiliser ; obligatoire en `staging` et `pr-<n>`               |
+| `CLIP_EMAIL`               | actif, sauf en `staging` et `pr-<n>`  | `0` coupe l'envoi d'emails (journalisés seulement)                         |
+| `CLIP_EMAIL_ROUTING`       | actif, sauf en `staging` et `pr-<n>`  | `0` retire la règle de réception `reply@`                                  |
+| `CLIP_STREAM_WEBHOOK`      | actif en production, staging et PR    | `0` : sondage de l'encodage seulement                                      |
 | `CLIP_CHAOS`               | `0`                                   | probabilité d'échec injectée dans chaque tentative d'étape                 |
 | `CLIP_CONTAINERS`          | activé (jamais en dev local ni en PR) | `0` retire le Container de la planche de vignettes                         |
 | `CLIP_DOMAIN`              | `clipshare.dev`                       | domaine de l'app et des emails                                             |
@@ -214,10 +218,10 @@ Ressources nommées par mode : Queue `clip-notifications[-<mode>]`, Workflow `cl
 `.github/workflows/ci.yml` :
 
 - **chaque PR et `main`** : `vp run -r types` (types `Env` générés), `vp check`, `vp run -r test` ;
-- **PR (branches du dépôt)** : `vp run pr:up <n>` (branche Neon vidée à sa création, migrations, Hyperdrive, Queue, déploiement jobs → api → web ; vrai Stream et vraie IA), `vp run smoke <url>`, commentaire avec l'URL ;
-- **`main`** : `vp run db:migrate:production` puis `vp run @clip/{jobs,api,web,hooks}#deploy` et contrôle de `/api/health`.
+- **PR (branches du dépôt)** : un job `tri` lit les fichiers modifiés. Pour une PR d'interface, `vp run pr:preview <n>` publie la Preview `pr-<n>` sur le staging. Pour une PR serveur ou étiquetée `env-complet`, `vp run pr:up <n>` crée l'environnement complet (branche Neon vidée à sa création, migrations, Hyperdrive, Queue, déploiement jobs → api → web). Dans les deux cas : vrai Stream et vraie IA, `vp run smoke <url>` et un commentaire avec l'URL ;
+- **`main`** : `vp run staging:up` et le test de fumée du staging, puis `vp run db:migrate:production`, `vp run @clip/{jobs,api,web,hooks}#deploy` et le contrôle de `/api/health`.
 
-`.github/workflows/pr-cleanup.yml` lance `vp run pr:down <n>` à la fermeture de la PR. Secrets : `CLOUDFLARE_API_TOKEN` (permissions limitées, voir CONTRIBUTING.md) et `NEON_API_KEY`.
+`.github/workflows/pr-cleanup.yml` lance `vp run pr:down <n>` (Preview comprise) à la fermeture de la PR. Secrets : `CLOUDFLARE_API_TOKEN` (permissions limitées, voir CONTRIBUTING.md) et `NEON_API_KEY`.
 
 ## Compatibilité vérifiée
 

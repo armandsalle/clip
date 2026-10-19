@@ -42,7 +42,7 @@ export const jobsWorker = (mode: string | undefined, containers = withContainers
         },
       }),
       AI: s.remote && bindings.ai({ dev: { remote: true } }),
-      // Coupé en PR : les emails sont seulement journalisés (Mailer.layerDisabled).
+      // Coupé en staging et en PR : les emails sont seulement journalisés (Mailer.layerDisabled).
       MAIL:
         s.email && bindings.sendEmail({ allowedSenderAddresses: [`notifications@${s.domain}`] }),
       DOMAIN: bindings.text(s.domain),

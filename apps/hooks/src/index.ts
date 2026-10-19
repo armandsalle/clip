@@ -6,10 +6,14 @@ import { verifyStreamWebhook } from "@clip/platform";
 // (`clip-production`, `clip-pr-12`…, posé à la création du dépôt) et relaie la requête
 // telle quelle (corps et signature) à cet environnement, qui la vérifie à son tour.
 
-/** Environnement d'un créateur Stream. Sans créateur : vidéo d'avant l'étiquetage (prod). */
+/**
+ * Environnement d'un créateur Stream (même règle que `modeOfStreamCreator` de
+ * @clip/config, qui lit le système de fichiers et reste hors des Workers).
+ * Sans créateur : vidéo d'avant l'étiquetage (prod).
+ */
 const modeOf = (creator: string | null | undefined): string | null => {
   if (!creator) return "production";
-  return /^clip-(production|pr-\d+)$/.exec(creator)?.[1] ?? null;
+  return /^clip-(production|staging|pr-\d+)$/.exec(creator)?.[1] ?? null;
 };
 
 export default {
@@ -42,7 +46,9 @@ export default {
     const response =
       mode === "production"
         ? await env.API.fetch("https://clip-api/api/stream/webhook", init)
-        : await fetch(env.PREVIEW_WEBHOOK_URL.replace("{mode}", mode), init);
+        : mode === "staging"
+          ? await env.API_STAGING.fetch("https://clip-api/api/stream/webhook", init)
+          : await fetch(env.PREVIEW_WEBHOOK_URL.replace("{mode}", mode), init);
     console.log(
       JSON.stringify({ message: "webhook.forwarded", uid, mode, status: response.status }),
     );
