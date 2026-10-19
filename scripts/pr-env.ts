@@ -150,18 +150,27 @@ const emptyBucket = () => {
   }
 };
 
-/** Attend que pr-<n>.clipshare.dev réponde (certificat et DNS du domaine personnalisé). */
+/**
+ * Attend que pr-<n>.clipshare.dev réponde. Au premier déploiement, Cloudflare émet le
+ * certificat du domaine personnalisé : constaté entre 5 et 10 minutes.
+ */
 const waitForHealth = async () => {
-  for (let i = 0; i < 60; i++) {
+  const started = Date.now();
+  let last = "";
+  while (Date.now() - started < 15 * 60_000) {
     try {
       const response = await fetch(`${url}/api/health`);
       if (response.ok) return;
-    } catch {
+      last = `HTTP ${response.status}`;
+    } catch (error) {
       // DNS ou certificat pas encore prêts
+      last = String((error as Error).cause ?? error);
     }
-    await new Promise((r) => setTimeout(r, 5000));
+    const elapsed = Math.round((Date.now() - started) / 1000);
+    if (elapsed % 60 < 10) console.log(`  ${elapsed} s : ${last}`);
+    await new Promise((r) => setTimeout(r, 10_000));
   }
-  throw new Error(`${url} ne répond pas après 5 minutes`);
+  throw new Error(`${url} ne répond pas après 15 minutes (${last})`);
 };
 
 // Actions ----------------------------------------------------------------------------------
