@@ -15,6 +15,8 @@ interface Viewer {
  * fermé sans close). Le socket n'est pas fermé : le navigateur s'en charge.
  */
 const STALE_MS = 2 * 60_000;
+/** Message client le plus rapproché accepté (les autres sont ignorés). */
+const MIN_MESSAGE_INTERVAL_MS = 1000;
 /** Présence diffusée au plus une fois par seconde, quel que soit le nombre de spectateurs. */
 const PRESENCE_DEBOUNCE_MS = 1000;
 
@@ -64,11 +66,15 @@ export class VideoRoom extends DurableObject<Env> {
   }
 
   override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
-    if (typeof message !== "string") return;
+    if (typeof message !== "string" || message.length > 256) return;
+    const viewer = ws.deserializeAttachment() as Viewer;
+    // Le client envoie sa position au plus toutes les 5 s : au-delà d'un message par
+    // seconde, on ignore sans toucher au stockage (un script ne peut pas inonder la room).
+    const now = Date.now();
+    if (now - viewer.seen < MIN_MESSAGE_INTERVAL_MS) return;
     const parsed = decodeClient(message);
     if (parsed._tag === "None") return;
-    const viewer = ws.deserializeAttachment() as Viewer;
-    ws.serializeAttachment({ ...viewer, time: parsed.value.time, seen: Date.now() });
+    ws.serializeAttachment({ ...viewer, time: parsed.value.time, seen: now });
     await this.schedulePresence();
   }
 
