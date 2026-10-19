@@ -2,7 +2,7 @@
 
 Clip est une démo « à la Grain » 100 % Cloudflare : on dépose une vidéo, sans compte, et elle devient un stream avec transcription, résumé, chapitres, miniatures, commentaires horodatés en direct et questions-réponses. Le produit (flows, UX, écrans) est décrit dans [PRODUCT.md](PRODUCT.md). Ce document décrit la tech.
 
-État au 2026-10-19 : déployé sur https://clipshare.dev en trois Workers (`clip-web`, `clip-api`, `clip-jobs`). Parcours complet vérifié en ligne : upload Stream, transcription, titre/résumé/chapitres, Neon via Hyperdrive. Chaque PR a son environnement éphémère (`pr-<n>.clipshare.dev`) ; `main` se déploie par la CI. Prise en main et conventions : [CONTRIBUTING.md](../CONTRIBUTING.md).
+État au 2026-10-19 : déployé sur https://clipshare.dev en trois Workers (`clip-web`, `clip-api`, `clip-jobs`), plus le routeur de webhooks `clip-hooks`. Parcours complet vérifié en ligne : upload Stream, transcription, titre/résumé/chapitres, Neon via Hyperdrive. Chaque PR a son environnement éphémère (`pr-<n>.clipshare.dev`) ; `main` se déploie par la CI. Prise en main et conventions : [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Stack et versions
 
@@ -53,6 +53,18 @@ Toutes les versions sont figées dans le `catalog` de `pnpm-workspace.yaml`. Les
 
 Ni clip-api ni clip-jobs n'ont de domaine ou d'URL `workers.dev` : on n'y entre que par service binding.
 
+### Webhook Stream et environnements
+
+Stream n'accepte qu'un webhook par compte, enregistré sur `https://clipshare.dev/api/stream/webhook`. Un quatrième Worker, `clip-hooks` (`apps/hooks`), est posé sur cette route : une route passe avant le domaine personnalisé de clip-web. Il vérifie la signature HMAC, lit le **créateur** de la vidéo et relaie la requête intacte (corps et signature) à son environnement, qui la vérifie à son tour :
+
+| Créateur Stream              | Destination                                                   |
+| ---------------------------- | ------------------------------------------------------------- |
+| `clip-production` (ou aucun) | `clip-api`, par service binding                               |
+| `clip-pr-<n>`                | `clip-web-pr-<n>.armand-salle.workers.dev/api/stream/webhook` |
+| autre (`clip-dev`…)          | ignoré (Stream ne peut pas joindre localhost ; le dev sonde)  |
+
+Le créateur est posé par clip-api à la création du dépôt tus (`Upload-Creator`), avec le nom `<créateur>/<id de la vidéo>` et, hors production, une suppression programmée à 30 jours (`scheduleddeletion`). `StreamVideos.remove` refuse de supprimer une vidéo d'un autre créateur, et `pr:down` supprime toutes les vidéos `clip-pr-<n>`.
+
 ### RPC interne
 
 clip-jobs ne modifie jamais une vidéo ni un commentaire : il le demande à clip-api par la RPC `InternalRpcs` (`packages/contract/src/internal.ts`, `effect/rpc`, sérialisation JSON). Le transport est un service binding vers l'entrypoint `Internal` d'api (`/internal/rpc`) : la requête ne quitte pas Cloudflare et n'a aucune route publique. Les erreurs sont des Schemas : elles arrivent typées côté jobs.
@@ -94,7 +106,7 @@ navigateur ── POST /api/videos ──▶ web ──▶ api : Stream.createUp
 navigateur ── upload tus ──▶ Stream (direct, sans passer par les Workers)
 
 jobs : Workflow clip-pipeline
-  ▼  attente de l'encodage : webhook Stream (api → instance.sendEvent) ou sondage de secours
+  ▼  attente de l'encodage : webhook Stream (clip-hooks → api → instance.sendEvent) ou sondage de secours
   ▼  RPC ApplyVideoEvent(Encoded) ─▶ api : Ready, diffusé dans la VideoRoom
   ▼  en parallèle : thumbnail · suggestions · storyboard · shareCard · hd
   │                audio ─▶ transcript ─▶ captions · summary (RPC SuggestTitle) · index
@@ -119,29 +131,29 @@ propriétaire répond ─▶ Email Routing ─▶ jobs.email ─▶ RPC AddEmail
 
 ## Primitives Cloudflare
 
-| Besoin                                     | Primitive                                                                                                                            | État                                                                |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------- |
-| API                                        | Worker + Effect `HttpApi` (`HttpRouter.toWebHandler`)                                                                                | fait, testé                                                         |
-| Front                                      | Static assets du même Worker (SPA, `runWorkerFirst` pour `/api`, `/dev`, `/media`), React + client dérivé du contrat                 | fait, vérifié dans le navigateur                                    |
-| Upload, encodage, lecture HLS, miniatures  | Stream : upload tus direct (API REST, token dans Secrets Store) ; binding pour le reste                                              | fait, vérifié en ligne jusqu'à 225 Mo ; faux Stream sur R2 en local |
-| Pipeline durable                           | Workflows (`step.do`, `step.sleep`, `sleepUntil`)                                                                                    | fait, vérifié en local                                              |
-| Temps réel, présence                       | Durable Object `VideoRoom` (WebSockets hibernables)                                                                                  | fait, vérifié en local                                              |
-| Transcription                              | Workers AI Deepgram Nova-3 (intervenants, langue), audio Stream transmis en flux                                                     | fait, vérifié en ligne (~2 s pour 27 s de dialogue)                 |
-| Sous-titres                                | VTT avec intervenants : servi par le Worker (`/api/videos/:id/captions.vtt`, piste `<track>`) et envoyé à Stream (`captions.upload`) | fait                                                                |
-| Qualité HD                                 | étape `hd` : avancement de l'encodage Stream après Ready (badge et tuile)                                                            | fait                                                                |
-| Détection « vidéo prête »                  | webhook Stream signé (HMAC, secret dans Secrets Store) + sondage de secours 5 s                                                      | fait, vérifié en ligne                                              |
-| Titre, résumé, chapitres                   | Workers AI (Llama 3.3 70B, sortie JSON)                                                                                              | code écrit ; factice en local                                       |
-| Stockage                                   | Neon (eu-central-1) via Hyperdrive `clip-neon` + Drizzle, une connexion par appel                                                    | testé contre PGlite et contre Neon en local                         |
-| Secrets d'admin                            | SHA-256 (WebCrypto), seul le hash est stocké                                                                                         | fait                                                                |
-| Médias (miniatures importées, faux Stream) | R2                                                                                                                                   | fait                                                                |
-| Planche de vignettes                       | Container (ffmpeg) piloté par le DO `Storyboard`                                                                                     | placeholder, désactivé                                              |
-| Notifications de commentaires              | Queues → Email Service, depuis `notifications@clipshare.dev`                                                                         | bindings déclarés, handler vide                                     |
-| Réponse aux commentaires par email         | Email Routing sur `reply+<jeton>@clipshare.dev` (sous-adressage)                                                                     | handler vide                                                        |
-| Questions sur la vidéo                     | AI Search sur la transcription                                                                                                       | binding déclaré                                                     |
-| Carte de partage, formats                  | Images                                                                                                                               | binding déclaré                                                     |
-| Cache des vues publiques                   | KV                                                                                                                                   | binding déclaré                                                     |
-| Interrupteurs IA, chaos                    | Flagship                                                                                                                             | binding déclaré ; variables `CLIP_CHAOS` en attendant               |
-| Traces                                     | Workers Observability                                                                                                                | activée ; spans Effect pas encore exportés                          |
+| Besoin                                     | Primitive                                                                                                                            | État                                                                      |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------- |
+| API                                        | Worker + Effect `HttpApi` (`HttpRouter.toWebHandler`)                                                                                | fait, testé                                                               |
+| Front                                      | Static assets du même Worker (SPA, `runWorkerFirst` pour `/api`, `/dev`, `/media`), React + client dérivé du contrat                 | fait, vérifié dans le navigateur                                          |
+| Upload, encodage, lecture HLS, miniatures  | Stream : upload tus direct (API REST, token dans Secrets Store) ; binding pour le reste                                              | fait, vérifié en ligne jusqu'à 225 Mo ; faux Stream (tus sur R2) en local |
+| Pipeline durable                           | Workflows (`step.do`, `step.sleep`, `sleepUntil`)                                                                                    | fait, vérifié en local                                                    |
+| Temps réel, présence                       | Durable Object `VideoRoom` (WebSockets hibernables)                                                                                  | fait, vérifié en local                                                    |
+| Transcription                              | Workers AI Deepgram Nova-3 (intervenants, langue), audio Stream transmis en flux                                                     | fait, vérifié en ligne (~2 s pour 27 s de dialogue)                       |
+| Sous-titres                                | VTT avec intervenants : servi par le Worker (`/api/videos/:id/captions.vtt`, piste `<track>`) et envoyé à Stream (`captions.upload`) | fait                                                                      |
+| Qualité HD                                 | étape `hd` : avancement de l'encodage Stream après Ready (badge et tuile)                                                            | fait                                                                      |
+| Détection « vidéo prête »                  | webhook Stream signé (HMAC, secret dans Secrets Store) + sondage de secours 5 s                                                      | fait, vérifié en ligne                                                    |
+| Titre, résumé, chapitres                   | Workers AI (Llama 3.3 70B, sortie JSON)                                                                                              | code écrit ; factice en local                                             |
+| Stockage                                   | Neon (eu-central-1) via Hyperdrive `clip-neon` + Drizzle, une connexion par appel                                                    | testé contre PGlite et contre Neon en local                               |
+| Secrets d'admin                            | SHA-256 (WebCrypto), seul le hash est stocké                                                                                         | fait                                                                      |
+| Médias (miniatures importées, faux Stream) | R2                                                                                                                                   | fait                                                                      |
+| Planche de vignettes                       | Container (ffmpeg) piloté par le DO `Storyboard`                                                                                     | placeholder, désactivé                                                    |
+| Notifications de commentaires              | Queues → Email Service, depuis `notifications@clipshare.dev`                                                                         | bindings déclarés, handler vide                                           |
+| Réponse aux commentaires par email         | Email Routing sur `reply+<jeton>@clipshare.dev` (sous-adressage)                                                                     | handler vide                                                              |
+| Questions sur la vidéo                     | AI Search sur la transcription                                                                                                       | binding déclaré                                                           |
+| Carte de partage, formats                  | Images                                                                                                                               | binding déclaré                                                           |
+| Cache des vues publiques                   | KV                                                                                                                                   | binding déclaré                                                           |
+| Interrupteurs IA, chaos                    | Flagship                                                                                                                             | binding déclaré ; variables `CLIP_CHAOS` en attendant                     |
+| Traces                                     | Workers Observability                                                                                                                | activée ; spans Effect pas encore exportés                                |
 
 ## Domaine et mise en place Cloudflare
 
@@ -178,7 +190,7 @@ Tout vit sur le domaine dédié `clipshare.dev` (acheté chez Cloudflare Registr
 | Mode         | Workers                             | Base                                                                  | Stream, IA                                      | Emails  | Domaine                |
 | ------------ | ----------------------------------- | --------------------------------------------------------------------- | ----------------------------------------------- | ------- | ---------------------- |
 | `dev`        | `clip-*-dev` (local, `cf dev`)      | `.env.local` : Postgres Docker ou branche Neon `dev-*`, sinon mémoire | faux (R2), factice ; vrais avec `CLIP_REMOTE=1` | simulés | localhost:5173         |
-| `pr-<n>`     | `clip-*-pr-<n>`                     | branche Neon `pr-<n>` via Hyperdrive `clip-neon-pr-<n>`               | faux (R2), factice                              | coupés  | `pr-<n>.clipshare.dev` |
+| `pr-<n>`     | `clip-*-pr-<n>`                     | branche Neon `pr-<n>` via Hyperdrive `clip-neon-pr-<n>`               | vrais (vidéos `clip-pr-<n>`)                    | coupés  | `pr-<n>.clipshare.dev` |
 | `production` | `clip-web`, `clip-api`, `clip-jobs` | branche Neon `production` via Hyperdrive `clip-neon`                  | vrais                                           | actifs  | `clipshare.dev`        |
 
 Ressources nommées par mode : Queue `clip-notifications[-<mode>]`, Workflow `clip-pipeline[-<mode>]`, bucket `clip-api[-<mode>]-media`. La Queue doit exister avant le déploiement (`cf queues create`) ; le Workflow, le bucket et les Durable Objects sont créés par `cf deploy`. En mode `pr-<n>`, `CLIP_HYPERDRIVE_ID` est obligatoire : sans lui, la config refuse de construire (une PR ne doit jamais se brancher sur la base de production).
@@ -192,7 +204,7 @@ Ressources nommées par mode : Queue `clip-notifications[-<mode>]`, Workflow `cl
 | `CLIP_HYPERDRIVE_ID`       | `clip-neon` (prod et dev)             | Hyperdrive à utiliser ; obligatoire en `pr-<n>`                            |
 | `CLIP_EMAIL`               | actif, sauf en `pr-<n>`               | `0` coupe l'envoi d'emails (journalisés seulement)                         |
 | `CLIP_EMAIL_ROUTING`       | actif, sauf en `pr-<n>`               | `0` retire la règle de réception `reply@`                                  |
-| `CLIP_STREAM_WEBHOOK`      | actif en production                   | `0` : sondage de l'encodage seulement                                      |
+| `CLIP_STREAM_WEBHOOK`      | actif en production et en PR          | `0` : sondage de l'encodage seulement                                      |
 | `CLIP_CHAOS`               | `0`                                   | probabilité d'échec injectée dans chaque tentative d'étape                 |
 | `CLIP_CONTAINERS`          | activé (jamais en dev local ni en PR) | `0` retire le Container de la planche de vignettes                         |
 | `CLIP_DOMAIN`              | `clipshare.dev`                       | domaine de l'app et des emails                                             |
@@ -202,8 +214,8 @@ Ressources nommées par mode : Queue `clip-notifications[-<mode>]`, Workflow `cl
 `.github/workflows/ci.yml` :
 
 - **chaque PR et `main`** : `vp run -r types` (types `Env` générés), `vp check`, `vp run -r test` ;
-- **PR (branches du dépôt)** : `vp run pr:up <n>` (branche Neon, migrations, Hyperdrive, Queue, déploiement jobs → api → web, vidéos de démo), `vp run smoke <url>`, commentaire avec l'URL ;
-- **`main`** : `vp run db:migrate:production` puis `vp run @clip/{jobs,api,web}#deploy` et contrôle de `/api/health`.
+- **PR (branches du dépôt)** : `vp run pr:up <n>` (branche Neon vidée à sa création, migrations, Hyperdrive, Queue, déploiement jobs → api → web ; vrai Stream et vraie IA), `vp run smoke <url>`, commentaire avec l'URL ;
+- **`main`** : `vp run db:migrate:production` puis `vp run @clip/{jobs,api,web,hooks}#deploy` et contrôle de `/api/health`.
 
 `.github/workflows/pr-cleanup.yml` lance `vp run pr:down <n>` à la fermeture de la PR. Secrets : `CLOUDFLARE_API_TOKEN` (permissions limitées, voir CONTRIBUTING.md) et `NEON_API_KEY`.
 

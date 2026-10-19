@@ -183,12 +183,13 @@ export const VideosHandlers = HttpApiBuilder.group(
       create: ({ payload }) =>
         Effect.gen(function* () {
           yield* limits.check("create", yield* clientKey);
+          const id = VideoId.make(crypto.randomUUID());
           const [upload, admin] = yield* Effect.all(
-            [stream.createUpload(MAX_DURATION_SECONDS, payload.size), keys.generate],
+            [stream.createUpload(id, MAX_DURATION_SECONDS, payload.size), keys.generate],
             { concurrency: 2 },
           );
           const video = new Video({
-            id: VideoId.make(crypto.randomUUID()),
+            id,
             streamUid: upload.uid,
             title: null,
             status: VideoStatus.cases.Uploading.make({}),

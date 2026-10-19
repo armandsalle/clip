@@ -16,7 +16,7 @@ vp run db:seed                      # dans un autre terminal : migrations + 3 vi
 
 Le seed affiche les liens d'admin des vidéos de démo. Il est rejouable : il remplace les vidéos de démo (identifiants fixes) sans toucher aux autres. Il applique les migrations lui-même ; `vp run db:migrate` les applique seules.
 
-En dev, Stream et l'IA sont simulés : l'upload va dans un R2 local (« faux Stream »), la transcription et le résumé sont factices. `CLIP_REMOTE=1` branche le vrai Stream et Workers AI (après `cf auth login` dans `apps/api`).
+En dev, Stream et l'IA sont simulés : l'upload va en tus dans un R2 local (« faux Stream »), la transcription et le résumé sont factices. `CLIP_REMOTE=1` branche le vrai Stream et Workers AI (après `cf auth login` dans `apps/api`).
 
 ### Quelle base en dev ?
 
@@ -81,21 +81,27 @@ Toutes les commandes du dépôt :
 
 ## Pull requests
 
-Chaque PR ouverte depuis une branche du dépôt reçoit son environnement complet, recréé à chaque push :
+Chaque PR ouverte depuis une branche du dépôt reçoit son environnement complet, mis à jour à chaque push. Il sert à valider le vrai produit : **vrai Stream et vraie IA**, comme en production.
 
 1. `vp check` et `vp run -r test` ;
-2. `vp run pr:up <n>` : branche Neon `pr-<n>` (copie de production, vidée puis remplie avec les vidéos de démo, expire seule au bout de 7 jours), migrations, Hyperdrive `clip-neon-pr-<n>`, Queue `clip-notifications-pr-<n>`, puis `cf deploy --mode pr-<n>` de clip-jobs, clip-api et clip-web ;
-3. `vp run smoke https://pr-<n>.clipshare.dev` : dépôt d'une vidéo, pipeline jusqu'à la transcription, commentaire, suppression ;
-4. un commentaire sur la PR donne l'URL.
+2. `vp run pr:up <n>` : branche Neon `pr-<n>` (copie de production, vidée à sa création, expire seule au bout de 7 jours), migrations, Hyperdrive `clip-neon-pr-<n>`, Queue `clip-notifications-pr-<n>`, puis `cf deploy --mode pr-<n>` de clip-jobs, clip-api et clip-web ;
+3. `vp run smoke <url>` : dépôt d'un vrai MP4 en tus, encodage par Stream, pipeline jusqu'à la transcription, commentaire, suppression ;
+4. un commentaire sur la PR donne l'URL, `https://pr-<n>.clipshare.dev`.
 
-En mode `pr-<n>`, le faux Stream et l'IA factice sont utilisés ; les emails, Email Routing, le webhook Stream et le Container sont coupés. À la fermeture de la PR, `vp run pr:down <n>` supprime tout : Workers (et leurs Durable Objects), Workflow, Queue, bucket R2, Hyperdrive, branche Neon. Les PR venues d'un fork n'ont ni secrets ni environnement.
+**Vidéos Stream étiquetées par environnement.** Chaque dépôt porte le créateur Stream de son environnement (`clip-production`, `clip-pr-12`, `clip-dev`) et le nom `<créateur>/<id de la vidéo>`, visible dans le tableau de bord. Hors production, Stream les supprime de lui-même au bout de 30 jours. Un environnement ne supprime jamais une vidéo Stream d'un autre créateur.
+
+**Webhook « vidéo prête ».** Stream n'accepte qu'un webhook par compte : `https://clipshare.dev/api/stream/webhook`. Le Worker `clip-hooks` (`apps/hooks`), sur une route qui passe avant clip-web, vérifie la signature et relaie la requête à l'environnement de la vidéo, d'après son créateur : clip-api en production, clip-web de la PR par son URL `workers.dev` sinon.
+
+Emails, Email Routing et Container restent coupés en PR. À la fermeture de la PR, `vp run pr:down <n>` supprime tout : vidéos Stream `clip-pr-<n>`, Workers (et leurs Durable Objects), Workflow, Queue, bucket R2, Hyperdrive, branche Neon. Les PR venues d'un fork n'ont ni secrets ni environnement.
+
+La CI teste l'environnement par l'URL `workers.dev` de clip-web : le Bot Fight Mode de `clipshare.dev` répond 403 aux runners GitHub.
 
 ## Release
 
 Un merge sur `main` déclenche, après les vérifications :
 
 1. `vp run db:migrate:production` : migrations sur la branche Neon `production` (URL demandée à l'API Neon, jamais stockée) ;
-2. le déploiement, dans l'ordre `clip-jobs` → `clip-api` → `clip-web` (`cf deploy --mode production`) ;
+2. le déploiement, dans l'ordre `clip-jobs` → `clip-api` → `clip-web` → `clip-hooks` (`cf deploy --mode production`) ;
 3. un contrôle de `https://clipshare.dev/api/health`.
 
 Les migrations doivent donc rester compatibles avec le code déjà en production pendant le déploiement : ajouter une colonne nullable avant de l'utiliser, supprimer une colonne une release après avoir cessé de la lire.
@@ -104,9 +110,9 @@ Les migrations doivent donc rester compatibles avec le code déjà en production
 
 À créer dans **Settings → Secrets and variables → Actions**, sans jamais les coller ailleurs :
 
-| Secret                 | Contenu                                                                                                                                                                                                                                                                                                                                                                                          |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `CLOUDFLARE_API_TOKEN` | Token de compte (Manage Account → Account API Tokens), limité au compte Clip et à la zone `clipshare.dev`. Compte : Account Settings Read, Workers Admin (ex-« Workers Scripts Write »), R2 Storage Write, Queues Write, Hyperdrive Write, Workers Containers Write, Secrets Store Read, Email Sending Write. Zone `clipshare.dev` : Workers Routes Write, DNS Write, Email Routing Rules Write. |
-| `NEON_API_KEY`         | Clé d'API Neon limitée au projet Clip (Project-scoped API key).                                                                                                                                                                                                                                                                                                                                  |
+| Secret                 | Contenu                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CLOUDFLARE_API_TOKEN` | Token de compte (Manage Account → Account API Tokens), limité au compte Clip et à la zone `clipshare.dev`. Compte : Account Settings Read, Workers Admin (ex-« Workers Scripts Write »), R2 Storage Write, Queues Write, Hyperdrive Write, Workers Containers Write, Secrets Store Read, Email Sending Write, Stream Write (vidéos des PR supprimées à leur fermeture). Zone `clipshare.dev` : Workers Routes Write, DNS Write, Email Routing Rules Write. |
+| `NEON_API_KEY`         | Clé d'API Neon limitée au projet Clip (Project-scoped API key).                                                                                                                                                                                                                                                                                                                                                                                            |
 
 Un environnement GitHub `production` (Settings → Environments) peut ajouter une validation manuelle avant le déploiement.

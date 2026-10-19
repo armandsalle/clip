@@ -7,15 +7,16 @@
 // down : supprime tout ce que `up` a créé (Workers, Workflow, Queue, bucket R2, Hyperdrive,
 //        branche Neon). Rejouable : une ressource absente est ignorée.
 //
-// Le mode pr-<n> coupe les emails et Email Routing, le webhook Stream et le Container,
-// et utilise le faux Stream et l'IA factice (voir packages/config).
+// Le mode pr-<n> utilise le vrai Stream et la vraie IA, comme la production : chaque
+// vidéo Stream est étiquetée `clip-pr-<n>` (créateur), clip-hooks lui relaie le webhook
+// « vidéo prête ». Emails, Email Routing et Container sont coupés (voir packages/config).
 //
 // Variables : CLOUDFLARE_API_TOKEN (ou `cf auth login`), NEON_API_KEY. Aucune valeur
 // secrète n'est affichée : le mot de passe de la branche est masqué dans GitHub Actions.
 import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { ACCOUNT_ID, resourceNames } from "@clip/config";
+import { ACCOUNT_ID, resourceNames, streamCreator } from "@clip/config";
 import { connectionUri, createBranch, deleteBranch, findBranch } from "./neon.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url).href);
@@ -177,7 +178,8 @@ const waitForHealth = async (base: string) => {
 
 const up = async () => {
   step(`Branche Neon ${mode}`);
-  const branch = (await findBranch(mode)) ?? (await createBranch(mode, { ttlDays: 7 }));
+  const existing = await findBranch(mode);
+  const branch = existing ?? (await createBranch(mode, { ttlDays: 7 }));
   const db = await connectionUri(branch);
   const dbEnv = { DATABASE_URL: db.href, DATABASE_URL_UNPOOLED: db.href };
 
@@ -199,7 +201,6 @@ const up = async () => {
     CLIP_CONTAINERS: "0",
     CLIP_EMAIL: "0",
     CLIP_EMAIL_ROUTING: "0",
-    CLIP_STREAM_WEBHOOK: "0",
   };
   const deploy = (app: "jobs" | "api" | "web", bootstrap = false) => {
     step(`Déploiement de ${names.workers[app]}${bootstrap ? " (amorce, sans RPC)" : ""}`);
@@ -229,12 +230,16 @@ const up = async () => {
   step(`Attente de ${ciUrl}`);
   await waitForHealth(ciUrl);
 
-  step("Vidéos de démo");
-  execFileSync("node", ["scripts/seed.ts", "--reset"], {
-    cwd: `${root}packages/db`,
-    env: { ...baseEnv(), ...dbEnv, CLIP_DEV_URL: ciUrl },
-    stdio: "inherit",
-  });
+  if (existing === null) {
+    // Branche neuve, copiée de la prod : vidée une fois (les pushs suivants gardent les
+    // vidéos déposées pendant la revue).
+    step("Base de la PR vidée");
+    execFileSync("node", ["scripts/seed.ts", "--reset", "--no-demo"], {
+      cwd: `${root}packages/db`,
+      env: { ...baseEnv(), ...dbEnv },
+      stdio: "inherit",
+    });
+  }
 
   console.log(`\n✓ ${url} (CI : ${ciUrl})`);
   if (process.env.GITHUB_OUTPUT) {
@@ -242,7 +247,40 @@ const up = async () => {
   }
 };
 
+interface StreamVideo {
+  readonly uid: string;
+}
+
+/** Vidéos Stream de la PR : créateur `clip-pr-<n>`, posé à la création du dépôt. */
+const deleteStreamVideos = () => {
+  const creator = streamCreator(mode);
+  for (let i = 0; i < 20; i++) {
+    const videos = cfJson<ReadonlyArray<StreamVideo>>([
+      "stream",
+      "videos",
+      "list",
+      "--creator",
+      creator,
+    ]);
+    if (!Array.isArray(videos) || videos.length === 0) return;
+    for (const video of videos) {
+      console.log(`  ${video.uid}`);
+      cf(["stream", "videos", "delete", video.uid, "--force"]);
+    }
+  }
+};
+
 const down = async () => {
+  step(`Vidéos Stream (créateur ${streamCreator(mode)})`);
+  // Un échec ici (permission Stream du token…) n'empêche pas le reste du nettoyage.
+  let streamFailed = false;
+  try {
+    deleteStreamVideos();
+  } catch (error) {
+    streamFailed = true;
+    console.error(`  échec : ${String(error)}`);
+  }
+
   // web → api → jobs : chacun référence le suivant (service bindings, Workflow, DO).
   for (const app of ["web", "api", "jobs"] as const) {
     step(`Suppression de ${names.workers[app]}`);
@@ -272,6 +310,9 @@ const down = async () => {
   const branch = await findBranch(mode);
   if (branch) await deleteBranch(branch);
 
+  if (streamFailed) {
+    throw new Error(`vidéos Stream ${streamCreator(mode)} non supprimées (voir plus haut)`);
+  }
   console.log(`\n✓ environnement ${mode} supprimé`);
 };
 

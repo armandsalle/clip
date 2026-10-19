@@ -48,6 +48,18 @@ export const ACCOUNT_ID = "cf7f360cd85645322d03de3ffb22249e";
 export const SECRETS_STORE_ID = "1ef90d01875a4f5baaea375be4e6b0ad";
 /** Projet Neon (eu-central-1) : branche `production`, `pr-<n>` par PR, `dev-<prénom>` par développeur. */
 export const NEON_PROJECT_ID = "curly-brook-93036842";
+/** Sous-domaine workers.dev du compte : `<worker>.armand-salle.workers.dev`. */
+export const WORKERS_SUBDOMAIN = "armand-salle";
+/** URL workers.dev d'un Worker (clip-web d'une PR : hors du Bot Fight Mode de la zone). */
+export const workersDevUrl = (worker: string) =>
+  `https://${worker}.${WORKERS_SUBDOMAIN}.workers.dev`;
+
+/** Créateur Stream d'un mode (`clip-production`, `clip-pr-12`, `clip-dev`). */
+export const streamCreator = (mode: string) => `clip-${mode}`;
+/** Mode d'un créateur Stream, s'il désigne un environnement déployé (production ou PR). */
+export const modeOfStreamCreator = (creator: string | null | undefined): string | null =>
+  /^clip-(production|pr-\d+)$/.exec(creator ?? "")?.[1] ?? null;
+
 /** Config Hyperdrive « clip-neon » (connexion directe vers Neon, eu-central-1, sans cache). */
 export const HYPERDRIVE_ID = "db72ca80c92e4ba5978e21c0e2121ae8";
 
@@ -78,6 +90,14 @@ export interface Settings {
    * dev avec CLIP_REMOTE=1 après `cf auth login`. Sinon : faux Stream sur R2, IA factice.
    */
   readonly remote: boolean;
+  /**
+   * Étiquette des vidéos Stream (`Upload-Creator`) : chaque vidéo est rattachée à son
+   * environnement. Le routeur de webhooks (clip-hooks) s'en sert pour livrer « vidéo
+   * prête » au bon environnement, et `pr:down` pour supprimer les vidéos d'une PR.
+   */
+  readonly streamCreator: string;
+  /** Suppression programmée des vidéos Stream hors production (filet de sécurité), en jours. */
+  readonly streamDeleteAfterDays: number | null;
   /** Domaine de l'app, de l'envoi d'emails et des réponses par email. */
   readonly domain: string;
   /** `pr-<n>` : environnement éphémère d'une PR (domaine `pr-<n>.<domaine>`). */
@@ -88,7 +108,7 @@ export interface Settings {
   readonly email: boolean;
   /** La règle de réception exige Email Routing actif sur le domaine (jamais en PR : elle volerait celle de la prod). */
   readonly emailRouting: boolean;
-  /** Webhook Stream « vidéo prête » (unique par compte → production seulement). */
+  /** Webhook Stream « vidéo prête », reçu par clip-hooks puis relayé (production et PR). */
   readonly webhook: boolean;
   readonly databaseUrl: string | undefined;
   /** `postgres` dès qu'une URL est disponible ; CLIP_STORE=memory force la mémoire. */
@@ -138,13 +158,17 @@ export const settings = (mode: string | undefined): Settings => {
     production,
     names: n.workers,
     resources: { notifications: n.notifications, pipeline: n.pipeline, media: n.media },
-    remote: production || process.env.CLIP_REMOTE === "1",
+    // Une PR valide le vrai produit : vrai Stream, vraie IA (comme en production).
+    remote: production || preview || process.env.CLIP_REMOTE === "1",
+    streamCreator: streamCreator(m),
+    // 30 jours : le minimum accepté par Stream pour `scheduleddeletion`.
+    streamDeleteAfterDays: production ? null : 30,
     domain,
     preview,
     hostname: production ? domain : preview ? `${m}.${domain}` : null,
     email: !preview && process.env.CLIP_EMAIL !== "0",
     emailRouting: !preview && process.env.CLIP_EMAIL_ROUTING !== "0",
-    webhook: production && process.env.CLIP_STREAM_WEBHOOK !== "0",
+    webhook: (production || preview) && process.env.CLIP_STREAM_WEBHOOK !== "0",
     databaseUrl: url,
     // Une PR a toujours sa base (branche Neon pr-<n>) : jamais de stockage en mémoire.
     store: !preview && (process.env.CLIP_STORE === "memory" || !url) ? "memory" : "postgres",

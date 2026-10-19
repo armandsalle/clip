@@ -36,6 +36,8 @@ const PlatformLive = LiveViaApi.pipe(
         stream: env.STREAM || undefined,
         token: env.STREAM_API_TOKEN || undefined,
         accountId: env.ACCOUNT_ID,
+        creator: env.STREAM_CREATOR,
+        deleteAfterDays: Number(env.STREAM_DELETE_AFTER_DAYS) || null,
         media: env.MEDIA,
       }),
       AiFor(remote ? env.AI || undefined : undefined),

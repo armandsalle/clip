@@ -27,6 +27,9 @@ export const jobsWorker = (mode: string | undefined, containers = withContainers
       // Avec le webhook, l'encodage attend l'événement ; sans, il sonde plus souvent.
       STREAM_WEBHOOK: bindings.text(s.webhook ? "1" : "0"),
       ACCOUNT_ID: bindings.text(ACCOUNT_ID),
+      // Étiquette Stream de l'environnement et suppression programmée (voir packages/config).
+      STREAM_CREATOR: bindings.text(s.streamCreator),
+      STREAM_DELETE_AFTER_DAYS: bindings.text(String(s.streamDeleteAfterDays ?? "")),
       STREAM: s.remote && bindings.stream({ dev: { remote: true } }),
       STREAM_API_TOKEN:
         s.remote &&

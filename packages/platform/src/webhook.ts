@@ -8,6 +8,8 @@ const MAX_AGE_SECONDS = 5 * 60;
 
 const StreamNotification = Schema.Struct({
   uid: Schema.String,
+  /** Environnement propriétaire (`clip-production`, `clip-pr-12`…), posé à la création. */
+  creator: Schema.optionalKey(Schema.NullOr(Schema.String)),
   readyToStream: Schema.optionalKey(Schema.Boolean),
   status: Schema.optionalKey(Schema.Struct({ state: Schema.optionalKey(Schema.String) })),
 });

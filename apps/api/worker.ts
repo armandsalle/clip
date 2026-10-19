@@ -17,6 +17,9 @@ export const apiWorker = (mode: string | undefined) => {
       STORE: bindings.text(s.store),
       REMOTE: bindings.text(s.remote ? "1" : "0"),
       ACCOUNT_ID: bindings.text(ACCOUNT_ID),
+      // Étiquette Stream de l'environnement et suppression programmée (voir packages/config).
+      STREAM_CREATOR: bindings.text(s.streamCreator),
+      STREAM_DELETE_AFTER_DAYS: bindings.text(String(s.streamDeleteAfterDays ?? "")),
       // Vidéo et médias. Token API Stream (Stream:Edit) pour l'upload tus, rangé une
       // fois dans le Secrets Store du compte ; en local, copie locale (`--local`).
       STREAM: s.remote && bindings.stream({ dev: { remote: true } }),
