@@ -6,8 +6,10 @@ interface Viewer {
   readonly id: string;
   readonly name: string;
   readonly time: number;
-  /** Dernier message reçu (ms). */
+  /** Dernier signe de vie (ms) : connexion ou message. */
   readonly seen: number;
+  /** Dernier message accepté (ms), pour limiter le débit ; 0 avant le premier. */
+  readonly lastMessage?: number;
 }
 
 /**
@@ -71,10 +73,10 @@ export class VideoRoom extends DurableObject<Env> {
     // Le client envoie sa position au plus toutes les 5 s : au-delà d'un message par
     // seconde, on ignore sans toucher au stockage (un script ne peut pas inonder la room).
     const now = Date.now();
-    if (now - viewer.seen < MIN_MESSAGE_INTERVAL_MS) return;
+    if (now - (viewer.lastMessage ?? 0) < MIN_MESSAGE_INTERVAL_MS) return;
     const parsed = decodeClient(message);
     if (parsed._tag === "None") return;
-    ws.serializeAttachment({ ...viewer, time: parsed.value.time, seen: now });
+    ws.serializeAttachment({ ...viewer, time: parsed.value.time, seen: now, lastMessage: now });
     await this.schedulePresence();
   }
 
@@ -93,7 +95,7 @@ export class VideoRoom extends DurableObject<Env> {
     const viewers: Array<Omit<Viewer, "seen">> = [];
     for (const ws of this.ctx.getWebSockets()) {
       if (ws.readyState !== WebSocket.OPEN) continue;
-      const { seen, ...viewer } = ws.deserializeAttachment() as Viewer;
+      const { seen, lastMessage: _last, ...viewer } = ws.deserializeAttachment() as Viewer;
       // Les pings répondus automatiquement comptent comme signe de vie.
       const ping = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? 0;
       if (now - Math.max(seen, ping) > STALE_MS) continue;
