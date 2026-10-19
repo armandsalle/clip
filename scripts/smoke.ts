@@ -44,7 +44,8 @@ check(
 await json<{ items: ReadonlyArray<unknown> }>("/api/videos");
 check(true, "la galerie se lit (/api/videos)");
 
-const bytes = new Uint8Array(64 * 1024);
+// 6 Mio : deux morceaux, dont un de 5 Mio (taille minimale d'une partie multipart R2).
+const bytes = new Uint8Array(6 * 1024 * 1024);
 const created = await json<{
   video: { id: string };
   uploadUrl: string;
@@ -55,15 +56,31 @@ const created = await json<{
   headers: { "content-type": "application/json" },
   body: JSON.stringify({ email: "smoke@example.com", expiry: "1d", size: bytes.byteLength }),
 });
-check(created.uploadProtocol === "put", "vidéo créée (faux Stream)");
+check(created.uploadProtocol === "tus", "vidéo créée (faux Stream, tus)");
 const id = created.video.id;
 
-const upload = await fetch(new URL(created.uploadUrl, base), {
-  method: "PUT",
-  headers: { "content-type": "video/mp4", "x-clip-duration": "30" },
-  body: bytes,
-});
-check(upload.ok, "fichier envoyé au faux Stream");
+// Comme tus-js-client : où en est le dépôt (HEAD), puis le fichier en deux morceaux (PATCH).
+const uploadUrl = new URL(created.uploadUrl, base);
+const head = await fetch(uploadUrl, { method: "HEAD", headers: { "tus-resumable": "1.0.0" } });
+check(head.ok && head.headers.get("upload-offset") === "0", "dépôt tus ouvert (offset 0)");
+const chunk = 5 * 1024 * 1024;
+for (const offset of [0, chunk]) {
+  const end = Math.min(offset + chunk, bytes.byteLength);
+  const patch = await fetch(uploadUrl, {
+    method: "PATCH",
+    headers: {
+      "tus-resumable": "1.0.0",
+      "upload-offset": String(offset),
+      "content-type": "application/offset+octet-stream",
+      "x-clip-duration": "30",
+    },
+    body: bytes.slice(offset, end),
+  });
+  check(
+    patch.status === 204 && patch.headers.get("upload-offset") === String(end),
+    `morceau envoyé (offset ${end})`,
+  );
+}
 
 // Pipeline : Ready (sondage de l'encodage), puis transcription par l'IA factice.
 let view: View | null = null;

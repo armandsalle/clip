@@ -3,7 +3,8 @@ import * as tus from "tus-js-client";
 // Envoi direct du fichier, avec progression, débit, pause et reprise :
 // - `tus` : vers Cloudflare Stream, par morceaux, reprenable (même après rechargement :
 //   l'URL d'upload suffit, tus demande au serveur où il en est) ;
-// - `put` : vers le faux Stream de clip-api en local (PUT brut, sans reprise).
+//   Le faux Stream de clip-api (dev local, environnements de PR) parle aussi tus ;
+// - `put` : PUT brut, sans reprise (n'est plus proposé par l'API).
 
 export const CHUNK_BYTES = 50 * 1024 * 1024;
 /** Nouvelles tentatives automatiques après une coupure (ms). */
@@ -52,6 +53,10 @@ export const startUpload = (
     const upload = new tus.Upload(file, {
       uploadUrl: url,
       chunkSize: CHUNK_BYTES,
+      // Faux Stream (URL relative /dev/stream/…) : la durée, que le vrai Stream lit seul.
+      ...(url.startsWith("/dev/stream/") && duration !== null
+        ? { headers: { "x-clip-duration": String(Math.round(duration)) } }
+        : {}),
       retryDelays: RETRY_DELAYS,
       onShouldRetry: (_error, attempt) => {
         callbacks.onRetry(RETRY_DELAYS[attempt] ?? 0);
