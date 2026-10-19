@@ -29,10 +29,17 @@ export const Transcript = ({
   const segments = view.transcript;
   const voices = useMemo(() => speakingTime(segments), [segments]);
   const needle = query.trim().toLowerCase();
-  const shown = segments.filter(
-    (s) =>
-      (speaker === null || s.speaker === speaker) &&
-      (needle === "" || s.text.toLowerCase().includes(needle)),
+  // Textes mis en minuscules une fois ; filtre recalculé seulement si la recherche change
+  // (pas à chaque tick du lecteur).
+  const lowered = useMemo(() => segments.map((s) => s.text.toLowerCase()), [segments]);
+  const shown = useMemo(
+    () =>
+      segments.filter(
+        (s, i) =>
+          (speaker === null || s.speaker === speaker) &&
+          (needle === "" || lowered[i]!.includes(needle)),
+      ),
+    [segments, lowered, speaker, needle],
   );
   const current = segments.findIndex((s) => time >= s.start && time < s.end);
 

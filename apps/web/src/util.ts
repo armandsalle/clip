@@ -16,6 +16,28 @@ const write = (key: string, value: string) => {
   }
 };
 
+const remove = (key: string) => {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // rien à effacer
+  }
+};
+
+/** Accès tolérant au localStorage : toutes les lectures et écritures de l'app passent ici. */
+export const local = { read, write, remove };
+
+/** Email de notification mémorisé : le dernier saisi, et celui de chaque vidéo déposée. */
+export const ownerEmail = {
+  last: () => read("clip:email"),
+  of: (videoId: string) => read(`clip:email:${videoId}`) ?? read("clip:email"),
+  remember: (videoId: string, email: string) => {
+    write("clip:email", email);
+    write(`clip:email:${videoId}`, email);
+  },
+  forget: (videoId: string) => remove(`clip:email:${videoId}`),
+};
+
 /**
  * Secret d'admin d'une vidéo : lu dans `?k=` (lien d'admin), mémorisé localement,
  * puis retiré de la barre d'adresse pour ne pas le partager par erreur.

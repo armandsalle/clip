@@ -4,24 +4,6 @@ import { MailIcon } from "./icons.tsx";
 // Badges des Fondations Paper. Les états (en cours, prête, échec, retry) portent
 // leur couleur ; le reste est neutre.
 
-export type BadgeTone = "running" | "success" | "failed" | "retry";
-
-/** Pastille d'état : point de couleur et libellé. */
-export const StatusBadge = ({
-  tone,
-  dot = true,
-  children,
-}: {
-  tone: BadgeTone;
-  dot?: boolean;
-  children: ReactNode;
-}) => (
-  <span className={`c-badge c-badge-pill c-tone-${tone}`}>
-    {dot && <span className="c-dot" aria-hidden />}
-    {children}
-  </span>
-);
-
 /** Durée sur une miniature (fond sombre translucide). */
 export const DurationBadge = ({ children }: { children: ReactNode }) => (
   <span className="c-badge c-badge-overlay c-mono">{children}</span>
@@ -52,16 +34,6 @@ export const TimecodeBadge = ({
   ) : (
     <span className="c-badge c-badge-raised c-mono">{children}</span>
   );
-
-/** Rendition courante du lecteur (« HD 1080p »). */
-export const RenditionBadge = ({ children }: { children: ReactNode }) => (
-  <span className="c-badge c-badge-outline c-mono">{children}</span>
-);
-
-/** Langue détectée (« FR · détectée »). */
-export const LanguageBadge = ({ children }: { children: ReactNode }) => (
-  <span className="c-badge c-badge-raised c-mono c-badge-muted">{children}</span>
-);
 
 export const EmailReplyBadge = () => (
   <span className="c-badge c-badge-pill c-badge-line">

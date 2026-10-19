@@ -82,7 +82,9 @@ export default {
       InternalApi.use((api) =>
         api.AddEmailReply({
           to: message.to,
-          from: parsed.from?.address ?? message.from,
+          // Expéditeur de l'enveloppe SMTP (contrôlé par Email Routing), pas l'en-tête
+          // From, que n'importe qui peut écrire.
+          from: message.from,
           text: parsed.text ?? "",
         }),
       ).pipe(Effect.result),

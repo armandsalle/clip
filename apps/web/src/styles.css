@@ -38,25 +38,6 @@ button {
 
 /* Logo ------------------------------------------------------------------------- */
 
-.logo {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  color: var(--clip-fg);
-  text-decoration: none;
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  line-height: 22px;
-}
-.logo-mark {
-  display: grid;
-  place-items: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 5px;
-  background: var(--clip-fg);
-}
 .input {
   flex: 1;
   height: 44px;

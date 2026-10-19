@@ -21,6 +21,9 @@ export interface UploadControl {
   /** `null` : envoi non interruptible (faux Stream local). */
   readonly pause: (() => void) | null;
   readonly resume: () => void;
+  /** Arrête l'envoi sans l'effacer chez Stream : il reste reprenable (rechargement). */
+  readonly stop: () => void;
+  /** Annule l'envoi et l'efface chez Stream (bouton « Annuler »). */
   readonly abort: () => void;
 }
 
@@ -62,6 +65,7 @@ export const startUpload = (
     return {
       pause: () => void upload.abort(),
       resume: () => upload.start(),
+      stop: () => void upload.abort(),
       abort: () => void upload.abort(true).catch(() => undefined),
     };
   }
@@ -80,7 +84,7 @@ export const startUpload = (
     request.send(file);
   };
   send();
-  return { pause: null, resume: send, abort: () => xhr?.abort() };
+  return { pause: null, resume: send, stop: () => xhr?.abort(), abort: () => xhr?.abort() };
 };
 
 /** Durée et image d'aperçu, lues dans le fichier par le navigateur (rien n'est envoyé). */

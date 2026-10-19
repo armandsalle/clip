@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { EnrichmentStatus, VideoId } from "@clip/domain";
+import { isTerminal, type EnrichmentStatus, type VideoId } from "@clip/domain";
 import type { LiveEvent } from "@clip/contract";
 import { Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
@@ -107,7 +107,7 @@ const Branch = ({
 export const Coulisses = ({ id }: { id: VideoId }) => {
   const view = useQuery(videoQuery(id)).data;
   const comments = useQuery(commentsQuery(id)).data ?? [];
-  const alive = view !== undefined && !["Expired", "Deleted"].includes(view.video.status._tag);
+  const alive = view !== undefined && !isTerminal(view.video);
   const live = useLiveVideo(id, viewerName() ?? "Invité", alive);
   const steps: Readonly<Record<string, EnrichmentStatus>> = { ...view?.enrichments, ...live.steps };
   const [now, setNow] = useState(Date.now());

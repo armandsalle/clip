@@ -7,7 +7,7 @@ import { Email, type UpdateVideo, VideoView } from "@clip/contract";
 import { errorMessage } from "../../api/client.ts";
 import { keys, removeVideo, updateVideo } from "../../api/queries.ts";
 import { Button, Segmented } from "../../ui/controls.tsx";
-import { copy, formatTime } from "../../util.ts";
+import { copy, formatTime, ownerEmail } from "../../util.ts";
 
 // Réglages du propriétaire (visibles avec le lien d'admin) : miniature, expiration,
 // email de notification, lien d'admin, suppression.
@@ -26,14 +26,6 @@ const dateFormat = new Intl.DateTimeFormat("fr-FR", {
   minute: "2-digit",
 });
 
-const emailKey = (id: VideoId) => `clip:email:${id}`;
-const readEmail = (id: VideoId) => {
-  try {
-    return localStorage.getItem(emailKey(id)) ?? localStorage.getItem("clip:email");
-  } catch {
-    return null;
-  }
-};
 const isEmail = Schema.is(Email);
 
 export const OwnerSettings = ({
@@ -52,8 +44,8 @@ export const OwnerSettings = ({
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const video = view.video;
-  const [email, setEmail] = useState(() => readEmail(id) ?? "");
-  const [savedEmail, setSavedEmail] = useState(() => readEmail(id));
+  const [email, setEmail] = useState(() => ownerEmail.of(id) ?? "");
+  const [savedEmail, setSavedEmail] = useState(() => ownerEmail.of(id));
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -83,12 +75,8 @@ export const OwnerSettings = ({
       {
         onSuccess: () => {
           setSavedEmail(next);
-          try {
-            if (next === null) localStorage.removeItem(emailKey(id));
-            else localStorage.setItem(emailKey(id), next);
-          } catch {
-            // facultatif
-          }
+          if (next === null) ownerEmail.forget(id);
+          else ownerEmail.remember(id, next);
         },
       },
     );

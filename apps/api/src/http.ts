@@ -3,6 +3,7 @@ import { HttpApiBuilder } from "effect/http-api";
 import { HttpServerRequest } from "effect/http";
 import {
   canCommentAt,
+  isTerminal,
   Comment,
   CommentId,
   EnrichmentKind,
@@ -97,9 +98,11 @@ export const VideosHandlers = HttpApiBuilder.group(
 
     const view = Effect.fn("Videos.view")(function* (id: VideoId) {
       // Deux connexions Hyperdrive en parallèle plutôt qu'à la suite.
-      const [video, records] = yield* Effect.all([store.getVideo(id), store.enrichments(id)], {
+      const [video, allRecords] = yield* Effect.all([store.getVideo(id), store.enrichments(id)], {
         concurrency: 2,
       });
+      // Vidéo expirée ou supprimée : seul son état reste visible, plus son contenu.
+      const records = isTerminal(video) ? [] : allRecords;
       const byKind = new Map(records.map((r) => [r.kind, r]));
       // Lecture : URL enregistrées par l'étape `thumbnail` ; sinon (juste après
       // l'encodage, anciennes vidéos), demandées à Stream.
@@ -180,8 +183,10 @@ export const VideosHandlers = HttpApiBuilder.group(
       create: ({ payload }) =>
         Effect.gen(function* () {
           yield* limits.check("create", yield* clientKey);
-          const upload = yield* stream.createUpload(MAX_DURATION_SECONDS, payload.size);
-          const admin = yield* keys.generate;
+          const [upload, admin] = yield* Effect.all(
+            [stream.createUpload(MAX_DURATION_SECONDS, payload.size), keys.generate],
+            { concurrency: 2 },
+          );
           const video = new Video({
             id: VideoId.make(crypto.randomUUID()),
             streamUid: upload.uid,
@@ -230,8 +235,12 @@ export const VideosHandlers = HttpApiBuilder.group(
 
       comments: ({ params }) =>
         Effect.gen(function* () {
-          yield* store.getVideo(params.id);
-          return yield* store.comments(params.id);
+          const [video, list] = yield* Effect.all(
+            [store.getVideo(params.id), store.comments(params.id)],
+            { concurrency: 2 },
+          );
+          // Vidéo expirée ou supprimée : plus aucun commentaire n'est servi.
+          return isTerminal(video) ? [] : list;
         }),
 
       comment: ({ params, payload }) =>

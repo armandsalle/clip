@@ -98,10 +98,25 @@ layer(
         payload: { email: "owner@example.com", expiry: "7d", size: 1_000_000 },
       });
       const headers = { "x-clip-admin": created.adminKey };
+      yield* encoded(created.video.id);
+      yield* client.videos.comment({
+        params: { id: created.video.id },
+        payload: { author: "Alice", body: "Avant suppression", time: 1, parentId: null },
+      });
       const removed = yield* client.videos.remove({ params: { id: created.video.id }, headers });
       assert.strictEqual(removed.status._tag, "Deleted");
-      const error = yield* encoded(created.video.id).pipe(Effect.flip);
+      const error = yield* Videos.use((v) =>
+        v.apply(created.video.id, [{ _tag: "Rename", title: "x" }]),
+      ).pipe(Effect.flip);
       assert.strictEqual(error._tag, "InvalidTransition");
+      // Plus rien du contenu n'est servi : ni texte, ni lecture, ni commentaires.
+      const view = yield* client.videos.get({ params: { id: created.video.id } });
+      assert.strictEqual(view.video.status._tag, "Deleted");
+      assert.isNull(view.playback);
+      assert.isNull(view.summary);
+      assert.deepStrictEqual(view.transcript, []);
+      const list = yield* client.videos.comments({ params: { id: created.video.id } });
+      assert.deepStrictEqual(list, []);
     }),
   );
 

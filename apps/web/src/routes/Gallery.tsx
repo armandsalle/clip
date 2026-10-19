@@ -69,9 +69,9 @@ const Skeletons = () => (
   <div className="g-grid" aria-busy="true" aria-label="Chargement de la galerie">
     {Array.from({ length: 8 }, (_, i) => (
       <div key={i} className="g-skeleton">
-        <div className="g-skeleton-thumb" />
-        <div className="g-skeleton-line" />
-        <div className="g-skeleton-line g-skeleton-short" />
+        <div className="c-skeleton g-skeleton-thumb" />
+        <div className="c-skeleton g-skeleton-line" />
+        <div className="c-skeleton g-skeleton-line g-skeleton-short" />
       </div>
     ))}
   </div>
@@ -119,13 +119,75 @@ const Failure = ({ error, onRetry }: { error: unknown; onRetry: () => void }) =>
   </div>
 );
 
+/** Contenu sous l'en-tête : un seul état affiché, choisi dans l'ordre. */
+const GalleryBody = ({
+  query,
+  q,
+  onSearch,
+}: {
+  query: ReturnType<typeof useGallery>;
+  q: string;
+  onSearch: (q: string) => void;
+}) => {
+  if (query.isPending) return <Skeletons />;
+  if (query.isError) return <Failure error={query.error} onRetry={() => void query.refetch()} />;
+  const items = query.data.pages.flatMap((p) => p.items);
+  if (items.length === 0 && q) {
+    return (
+      <div className="g-noresult">
+        <p>{copy.gallery.noResult(q)}</p>
+        <button type="button" className="g-link" onClick={() => onSearch("")}>
+          {copy.gallery.clearSearch}
+        </button>
+      </div>
+    );
+  }
+  if (items.length === 0) return <Empty />;
+  return (
+    <>
+      <ul className="g-grid">
+        {items.map(({ video, comments, enrichments, thumbnail }) => (
+          <li key={video.id}>
+            <Link to="/v/$id" params={{ id: video.id }} className="g-card-link">
+              <VideoCard
+                title={video.title ?? copy.gallery.untitled}
+                meta={cardMeta(video, comments)}
+                thumbnail={thumbnail}
+                duration={cardDuration(video)}
+                status={cardStatus(video, enrichments)}
+              />
+            </Link>
+          </li>
+        ))}
+      </ul>
+      {query.hasNextPage && (
+        <div className="g-more">
+          <Button onClick={() => void query.fetchNextPage()} disabled={query.isFetchingNextPage}>
+            {query.isFetchingNextPage ? copy.gallery.loadingMore : copy.gallery.more}
+          </Button>
+        </div>
+      )}
+    </>
+  );
+};
+
+const useGallery = (q: string) => useInfiniteQuery(galleryQuery(q));
+
+/** Sous-titre : nombre de vidéos, ou de résultats pendant une recherche. */
+const Subtitle = ({ total, q }: { total: number; q: string }) =>
+  q ? (
+    <p>{copy.gallery.results(total)}</p>
+  ) : (
+    <p>
+      <span className="g-sub-long">{copy.gallery.subtitle(total)}</span>
+      <span className="g-sub-short">{copy.gallery.subtitleShort(total)}</span>
+    </p>
+  );
+
 /** Galerie publique : toutes les vidéos de la démo, plus récentes d'abord. */
 export const Gallery = ({ q, onSearch }: { q: string; onSearch: (q: string) => void }) => {
-  const query = useInfiniteQuery(galleryQuery(q));
-  const pages = query.data?.pages ?? [];
-  const items = pages.flatMap((p) => p.items);
-  const total = pages[0]?.total;
-
+  const query = useGallery(q);
+  const total = query.data?.pages[0]?.total;
   return (
     <div className="g-page">
       <AppNav />
@@ -133,63 +195,11 @@ export const Gallery = ({ q, onSearch }: { q: string; onSearch: (q: string) => v
         <div className="g-head">
           <div className="g-title">
             <h1>{copy.gallery.title}</h1>
-            {total !== undefined &&
-              (q ? (
-                <p>{copy.gallery.results(total)}</p>
-              ) : (
-                <p>
-                  <span className="g-sub-long">{copy.gallery.subtitle(total)}</span>
-                  <span className="g-sub-short">{copy.gallery.subtitleShort(total)}</span>
-                </p>
-              ))}
+            {total !== undefined && <Subtitle total={total} q={q} />}
           </div>
           <Search value={q} onChange={onSearch} />
         </div>
-
-        {query.isPending ? (
-          <Skeletons />
-        ) : query.isError ? (
-          <Failure error={query.error} onRetry={() => void query.refetch()} />
-        ) : items.length === 0 ? (
-          q ? (
-            <div className="g-noresult">
-              <p>{copy.gallery.noResult(q)}</p>
-              <button type="button" className="g-link" onClick={() => onSearch("")}>
-                {copy.gallery.clearSearch}
-              </button>
-            </div>
-          ) : (
-            <Empty />
-          )
-        ) : (
-          <>
-            <ul className="g-grid">
-              {items.map(({ video, comments, enrichments, thumbnail }) => (
-                <li key={video.id}>
-                  <Link to="/v/$id" params={{ id: video.id }} className="g-card-link">
-                    <VideoCard
-                      title={video.title ?? copy.gallery.untitled}
-                      meta={cardMeta(video, comments)}
-                      thumbnail={thumbnail}
-                      duration={cardDuration(video)}
-                      status={cardStatus(video, enrichments)}
-                    />
-                  </Link>
-                </li>
-              ))}
-            </ul>
-            {query.hasNextPage && (
-              <div className="g-more">
-                <Button
-                  onClick={() => void query.fetchNextPage()}
-                  disabled={query.isFetchingNextPage}
-                >
-                  {query.isFetchingNextPage ? copy.gallery.loadingMore : copy.gallery.more}
-                </Button>
-              </div>
-            )}
-          </>
-        )}
+        <GalleryBody query={query} q={q} onSearch={onSearch} />
       </main>
     </div>
   );

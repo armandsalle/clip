@@ -1,6 +1,6 @@
 import { env, WorkerEntrypoint } from "cloudflare:workers";
 import { Effect, Layer, Option } from "effect";
-import { VideoId } from "@clip/domain";
+import { isTerminal, VideoId } from "@clip/domain";
 import { decodeResult, TranscriptResult } from "@clip/contract";
 import {
   AdminKeys,
@@ -60,7 +60,13 @@ const transcriptOf = decodeResult(TranscriptResult);
 
 /** VTT de la transcription enregistrée, ou `null` s'il n'y en a pas encore. */
 const captionsVtt = Effect.fn("captionsVtt")(function* (videoId: VideoId) {
-  const records = yield* Store.use((s) => s.enrichments(videoId));
+  const store = yield* Store;
+  const [video, records] = yield* Effect.all(
+    [store.getVideo(videoId).pipe(Effect.option), store.enrichments(videoId)],
+    { concurrency: 2 },
+  );
+  // Introuvable, expirée ou supprimée : pas de sous-titres.
+  if (Option.isNone(video) || isTerminal(video.value)) return null;
   const segments = Option.match(
     transcriptOf(records.find((r) => r.kind === "transcript")?.result),
     {
@@ -80,16 +86,33 @@ async function devStream(request: Request, uid: string, thumbnail: boolean): Pro
     );
   }
   if (request.method === "PUT" || request.method === "POST") {
+    // Écriture seulement pour un dépôt créé par l'API et encore en cours : le faux
+    // Stream (dev local, environnements de PR) n'héberge pas de fichiers arbitraires.
+    const accepting = await runtime.runPromise(
+      Effect.gen(function* () {
+        const store = yield* Store;
+        const videoId = yield* store.findByStreamUid(uid);
+        if (videoId === null) return false;
+        const video = yield* store.getVideo(videoId).pipe(Effect.option);
+        return Option.isSome(video) && video.value.status._tag === "Uploading";
+      }),
+    );
+    if (!accepting) return new Response("upload inconnu", { status: 404 });
     await env.MEDIA.put(key, request.body, {
-      httpMetadata: { contentType: request.headers.get("content-type") ?? "video/mp4" },
+      // Type imposé : jamais celui du client (sinon du HTML servi depuis clipshare.dev).
+      httpMetadata: { contentType: "video/mp4" },
       customMetadata: { duration: request.headers.get("x-clip-duration") ?? "60" },
     });
     return new Response(null, { status: 201 });
   }
   const object = await env.MEDIA.get(key, { range: request.headers });
   if (!object) return new Response("not found", { status: 404 });
-  const headers = new Headers({ "accept-ranges": "bytes" });
-  object.writeHttpMetadata(headers);
+  const headers = new Headers({
+    "accept-ranges": "bytes",
+    "content-type": "video/mp4",
+    "x-content-type-options": "nosniff",
+    "content-security-policy": "default-src 'none'; sandbox",
+  });
   if (object.range && "offset" in object.range) {
     const { offset = 0, length = object.size - offset } = object.range;
     headers.set("content-range", `bytes ${offset}-${offset + length - 1}/${object.size}`);

@@ -143,6 +143,18 @@ const disabled = Effect.fn("pipeline.disabled")(function* (videoId: VideoId, kin
   return null;
 });
 
+/** Étape d'enrichissement soumise à un interrupteur : marquée désactivée s'il est coupé. */
+const gated = <A, E, R>(
+  flag: "ai" | "storyboard",
+  videoId: VideoId,
+  kind: EnrichmentKind,
+  work: Effect.Effect<A, E, R>,
+) =>
+  Effect.gen(function* () {
+    if (!(yield* Features)[flag]) return yield* disabled(videoId, kind);
+    return yield* enrichment(videoId, kind, work);
+  });
+
 const readyVideo = Effect.fn("pipeline.readyVideo")(function* (videoId: VideoId) {
   const video = yield* Store.use((s) => s.getVideo(videoId));
   if (video.status._tag !== "Ready") {
@@ -241,59 +253,53 @@ const storedTranscript = Effect.fn("pipeline.storedTranscript")(function* (video
 
 /** Transcription Deepgram Nova-3 : l'audio Stream est transmis en flux. */
 export const transcript = (videoId: VideoId) =>
-  Effect.gen(function* () {
-    if (!(yield* Features).ai) return yield* disabled(videoId, "transcript");
-    return yield* enrichment(
-      videoId,
-      "transcript",
-      Effect.gen(function* () {
-        const { video, duration } = yield* readyVideo(videoId);
-        const audio = yield* StreamVideos.use((s) => s.audio(video.streamUid));
-        if (audio === null) {
-          return yield* new StepFailed({ kind: "transcript", message: "audio pas encore prêt" });
-        }
-        return yield* Transcriber.use((t) => t.transcribe(audio, duration));
-      }),
-    );
-  });
+  gated(
+    "ai",
+    videoId,
+    "transcript",
+    Effect.gen(function* () {
+      const { video, duration } = yield* readyVideo(videoId);
+      const audio = yield* StreamVideos.use((s) => s.audio(video.streamUid));
+      if (audio === null) {
+        return yield* new StepFailed({ kind: "transcript", message: "audio pas encore prêt" });
+      }
+      return yield* Transcriber.use((t) => t.transcribe(audio, duration));
+    }),
+  );
 
 /** Sous-titres renvoyés à Stream : ils apparaissent dans le lecteur et le manifeste. */
 export const captions = (videoId: VideoId) =>
-  Effect.gen(function* () {
-    if (!(yield* Features).ai) return yield* disabled(videoId, "captions");
-    return yield* enrichment(
-      videoId,
-      "captions",
-      Effect.gen(function* () {
-        const { video } = yield* readyVideo(videoId);
-        const { language, segments } = yield* storedTranscript(videoId);
-        if (segments.length === 0) {
-          return yield* new StepFailed({ kind: "captions", message: "pas de transcription" });
-        }
-        const lang = language ?? "fr";
-        yield* StreamVideos.use((s) => s.uploadCaptions(video.streamUid, lang, toVtt(segments)));
-        return { language: lang, cues: segments.length };
-      }),
-    );
-  });
+  gated(
+    "ai",
+    videoId,
+    "captions",
+    Effect.gen(function* () {
+      const { video } = yield* readyVideo(videoId);
+      const { language, segments } = yield* storedTranscript(videoId);
+      if (segments.length === 0) {
+        return yield* new StepFailed({ kind: "captions", message: "pas de transcription" });
+      }
+      const lang = language ?? "fr";
+      yield* StreamVideos.use((s) => s.uploadCaptions(video.streamUid, lang, toVtt(segments)));
+      return { language: lang, cues: segments.length };
+    }),
+  );
 
 export const summary = (videoId: VideoId) =>
-  Effect.gen(function* () {
-    if (!(yield* Features).ai) return yield* disabled(videoId, "summary");
-    return yield* enrichment(
-      videoId,
-      "summary",
-      Effect.gen(function* () {
-        const { language, segments } = yield* storedTranscript(videoId);
-        if (segments.length === 0)
-          return yield* new AiError({ step: "summary", message: "pas de transcription" });
-        const result = yield* Summarizer.use((s) => s.summarize(segments, language ?? null));
-        // Le titre généré ne remplace jamais un titre choisi par le propriétaire (api décide).
-        yield* InternalApi.use((api) => api.SuggestTitle({ videoId, title: result.title }));
-        return { summary: result.summary, chapters: result.chapters };
-      }),
-    );
-  });
+  gated(
+    "ai",
+    videoId,
+    "summary",
+    Effect.gen(function* () {
+      const { language, segments } = yield* storedTranscript(videoId);
+      if (segments.length === 0)
+        return yield* new AiError({ step: "summary", message: "pas de transcription" });
+      const result = yield* Summarizer.use((s) => s.summarize(segments, language ?? null));
+      // Le titre généré ne remplace jamais un titre choisi par le propriétaire (api décide).
+      yield* InternalApi.use((api) => api.SuggestTitle({ videoId, title: result.title }));
+      return { summary: result.summary, chapters: result.chapters };
+    }),
+  );
 
 /** Suggestions de miniatures : 3 instants répartis (classés par l'IA en prod). */
 export const suggestions = (videoId: VideoId) =>
@@ -306,19 +312,13 @@ export const suggestions = (videoId: VideoId) =>
   );
 
 export const storyboard = (videoId: VideoId) =>
-  Effect.gen(function* () {
-    if (!(yield* Features).storyboard) return yield* disabled(videoId, "storyboard");
-    return yield* enrichment(videoId, "storyboard", Effect.succeed({ sprite: null }));
-  });
+  gated("storyboard", videoId, "storyboard", Effect.succeed({ sprite: null }));
 
 export const shareCard = (videoId: VideoId) =>
   enrichment(videoId, "shareCard", Effect.succeed({ path: `/v/${videoId}/card.png` }));
 
 export const index = (videoId: VideoId) =>
-  Effect.gen(function* () {
-    if (!(yield* Features).ai) return yield* disabled(videoId, "index");
-    return yield* enrichment(videoId, "index", Effect.succeed({ indexed: true }));
-  });
+  gated("ai", videoId, "index", Effect.succeed({ indexed: true }));
 
 /**
  * Cron d'expiration : chaque vidéo dont la date est passée reçoit `Expire` (api

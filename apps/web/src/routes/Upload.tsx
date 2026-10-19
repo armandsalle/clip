@@ -16,13 +16,18 @@ import {
 import { CHUNK_BYTES, probeVideo, startUpload, type UploadControl } from "../lib/upload.ts";
 import { AppNav } from "../ui/AppNav.tsx";
 import { Button, Field } from "../ui/controls.tsx";
-import { copy as copyToClipboard, formatBytes, formatTime, rememberAdminKey } from "../util.ts";
+import {
+  copy as copyToClipboard,
+  formatBytes,
+  formatTime,
+  ownerEmail,
+  rememberAdminKey,
+} from "../util.ts";
 import "./upload.css";
 
 // Dépôt façon Smash : Fichier → Email (obligatoire) → Envoi. Le lien de partage est
 // actif dès la création ; l'envoi tus reprend après une coupure ou un rechargement.
 
-const EMAIL_KEY = "clip:email";
 const emailStandard = Schema.toStandardSchemaV1(Email);
 
 type Rejected = { readonly kind: "type" | "size"; readonly file: File };
@@ -55,21 +60,6 @@ type State =
 
 const isVideo = (file: File) =>
   file.type.startsWith("video/") || /\.(mp4|mov|webm|mkv|m4v)$/i.test(file.name);
-
-const readEmail = () => {
-  try {
-    return localStorage.getItem(EMAIL_KEY) ?? "";
-  } catch {
-    return "";
-  }
-};
-const rememberEmail = (email: string) => {
-  try {
-    localStorage.setItem(EMAIL_KEY, email);
-  } catch {
-    // facultatif
-  }
-};
 
 const formatEta = (seconds: number) =>
   seconds < 60 ? `${Math.max(1, Math.round(seconds))} s` : `${Math.round(seconds / 60)} min`;
@@ -173,7 +163,18 @@ export const Upload = () => {
     return () => removeEventListener("beforeunload", warn);
   }, [state.step]);
 
-  useEffect(() => () => control.current?.abort(), []);
+  /** Nouvel essai programmé après une coupure : annulé par « Annuler » et au démontage. */
+  const retryTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  // Quitter la page (navigation dans l'app) : l'envoi s'arrête mais reste reprenable,
+  // l'URL tus mémorisée sert à la reprise.
+  useEffect(
+    () => () => {
+      clearTimeout(retryTimer.current);
+      control.current?.stop();
+    },
+    [],
+  );
 
   useEffect(() => {
     if (state.step !== "done") return;
@@ -234,13 +235,14 @@ export const Upload = () => {
       // tant que l'onglet est ouvert (la reprise après rechargement reste possible).
       onError: () => {
         update((s) => ({ ...s, status: { _tag: "retrying", at: Date.now() + 4000 } }));
-        setTimeout(() => control.current?.resume(), 4000);
+        clearTimeout(retryTimer.current);
+        retryTimer.current = setTimeout(() => control.current?.resume(), 4000);
       },
     });
   };
 
   const form = useForm({
-    defaultValues: { email: readEmail() },
+    defaultValues: { email: ownerEmail.last() ?? "" },
     onSubmit: async ({ value }) => {
       if (state.step !== "email") return;
       const { file, duration } = state.chosen;
@@ -249,12 +251,7 @@ export const Upload = () => {
         const created = await call((api) =>
           api.videos.create({ payload: { email, expiry: "7d", size: file.size } }),
         );
-        rememberEmail(email);
-        try {
-          localStorage.setItem(`clip:email:${created.video.id}`, email);
-        } catch {
-          // facultatif : les réglages afficheront l'adresse si elle est mémorisée
-        }
+        ownerEmail.remember(created.video.id, email);
         send(file, duration, {
           videoId: created.video.id,
           adminKey: created.adminKey,
@@ -515,6 +512,7 @@ export const Upload = () => {
                   <Button
                     variant="primary"
                     onClick={() => {
+                      clearTimeout(retryTimer.current);
                       control.current?.pause?.();
                       control.current?.resume();
                     }}
@@ -523,7 +521,9 @@ export const Upload = () => {
                   </Button>
                   <Button
                     onClick={() => {
+                      clearTimeout(retryTimer.current);
                       control.current?.abort();
+                      control.current = null;
                       clearPending();
                       setState({ step: "file" });
                     }}

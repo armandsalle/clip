@@ -1,10 +1,10 @@
-import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
+import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import { preconnect } from "react-dom";
 import type Hls from "hls.js";
 import { prefetch, segmentsAt } from "../../lib/prefetch.ts";
 import type { EnrichmentStatus } from "@clip/domain";
 import type { Viewer } from "../../live.ts";
-import { formatTime, presenceColor } from "../../util.ts";
+import { formatTime, local, presenceColor } from "../../util.ts";
 
 // Lecteur v2 : HLS de Cloudflare Stream (natif sur Safari, hls.js ailleurs) ou MP4 du
 // faux Stream local. Sous-titres on/off, choix de la qualité avec la rendition en cours,
@@ -25,13 +25,7 @@ interface Level {
 }
 
 const CAPTIONS_KEY = "clip:cc";
-const readCaptions = () => {
-  try {
-    return localStorage.getItem(CAPTIONS_KEY) !== "off";
-  } catch {
-    return true;
-  }
-};
+const readCaptions = () => local.read(CAPTIONS_KEY) !== "off";
 
 const label = (height: number) => (height >= 1080 ? `${height}p HD` : `${height}p`);
 
@@ -82,7 +76,7 @@ export const Player = ({
    */
   const jumpTo = (t: number) => {
     const v = video.current;
-    if (!v) return;
+    if (!v || !Number.isFinite(t)) return;
     const instance = hls.current;
     setTime(t);
     setLoading(true);
@@ -210,11 +204,7 @@ export const Player = ({
   useEffect(() => {
     const track = video.current?.textTracks[0];
     if (track) track.mode = captionsOn ? "showing" : "hidden";
-    try {
-      localStorage.setItem(CAPTIONS_KEY, captionsOn ? "on" : "off");
-    } catch {
-      // facultatif
-    }
+    local.write(CAPTIONS_KEY, captionsOn ? "on" : "off");
   }, [captionsOn, captions]);
 
   useEffect(() => {
@@ -265,10 +255,13 @@ export const Player = ({
   }, [warm, chapters, commentTimes]);
 
   const pct = (t: number) => `${Math.min(100, Math.max(0, (t / duration) * 100))}%`;
-  const segments =
-    chapters.length > 0
-      ? chapters.map((c, i) => ({ start: c.time, end: chapters[i + 1]?.time ?? duration }))
-      : [{ start: 0, end: duration }];
+  const segments = useMemo(
+    () =>
+      chapters.length > 0
+        ? chapters.map((c, i) => ({ start: c.time, end: chapters[i + 1]?.time ?? duration }))
+        : [{ start: 0, end: duration }],
+    [chapters, duration],
+  );
   const best = levels[0]?.height ?? null;
   const hdProgress = hd?._tag === "Running" ? hd.progress : undefined;
 
@@ -414,7 +407,23 @@ export const Player = ({
             setHover(null);
           }}
           onKeyDown={(e) => {
-            if (e.key === "ArrowLeft" || e.key === "ArrowRight") e.stopPropagation();
+            // Le curseur gère lui-même ←/→ (±5 s), Début et Fin (rôle slider).
+            const v = video.current;
+            if (!v) return;
+            const to =
+              e.key === "ArrowLeft"
+                ? v.currentTime - 5
+                : e.key === "ArrowRight"
+                  ? v.currentTime + 5
+                  : e.key === "Home"
+                    ? 0
+                    : e.key === "End"
+                      ? duration - 1
+                      : null;
+            if (to === null) return;
+            e.preventDefault();
+            e.stopPropagation();
+            jumpTo(Math.min(duration, Math.max(0, to)));
           }}
         >
           {segments.map((s) => {

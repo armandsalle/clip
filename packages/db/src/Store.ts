@@ -116,6 +116,8 @@ export class Store extends Context.Service<
     findCommentByReplyToken(token: string): Effect.Effect<Comment | null>;
     /** Jeton de réponse d'un commentaire (null pour les anciens commentaires). */
     replyTokenOf(commentId: CommentId): Effect.Effect<string | null>;
+    /** Vidéo expirée ou supprimée : sa transcription, ses résultats et ses commentaires disparaissent. */
+    purgeContent(id: VideoId): Effect.Effect<void>;
     /** Galerie publique : vidéos ni expirées ni supprimées, par pages. */
     listPublic(query: GalleryQuery): Effect.Effect<GalleryResult>;
     /** Vidéos qui ont une durée de vie et ne sont pas encore expirées ni supprimées (les plus anciennes d'abord). */
@@ -166,6 +168,14 @@ export class Store extends Context.Service<
           return token;
         }),
       findCommentByReplyToken: (token) => Effect.sync(() => tokens.get(token) ?? null),
+      purgeContent: (id) =>
+        Effect.sync(() => {
+          enrich.delete(id);
+          for (const c of comms.get(id) ?? []) {
+            for (const [token, t] of tokens) if (t.id === c.id) tokens.delete(token);
+          }
+          comms.delete(id);
+        }),
       replyTokenOf: (commentId) =>
         Effect.sync(() => [...tokens].find(([, c]) => c.id === commentId)?.[0] ?? null),
       listPublic: ({ cursor, q, limit }) =>
@@ -240,6 +250,7 @@ export class Store extends Context.Service<
       addComment: true,
       findCommentByReplyToken: true,
       replyTokenOf: true,
+      purgeContent: true,
       listPublic: true,
       expiring: true,
     } satisfies Record<keyof Store["Service"], true>;
@@ -380,6 +391,16 @@ export class Store extends Context.Service<
             .where(eq(comments.videoId, id))
             .orderBy(asc(comments.time), asc(comments.createdAt));
           return yield* Effect.forEach(rows, (r) => decodeComment(commentInput(r)));
+        }, Effect.orDie),
+
+        purgeContent: Effect.fn("Store.purgeContent")(function* (id) {
+          yield* Effect.all(
+            [
+              db.delete(enrichments).where(eq(enrichments.videoId, id)),
+              db.delete(comments).where(eq(comments.videoId, id)),
+            ],
+            { concurrency: 2, discard: true },
+          );
         }, Effect.orDie),
 
         replyTokenOf: Effect.fn("Store.replyTokenOf")(function* (commentId) {

@@ -9,13 +9,13 @@ import { formatTime } from "../../util.ts";
 export const VideoSkeleton = () => (
   <div className="v-skeleton" aria-busy="true" aria-label="Chargement de la vidéo">
     <div className="v-skeleton-main">
-      <div className="v-skeleton-player" />
-      <div className="v-skeleton-line" />
-      <div className="v-skeleton-line v-skeleton-short" />
+      <div className="c-skeleton v-skeleton-player" />
+      <div className="c-skeleton v-skeleton-line" />
+      <div className="c-skeleton v-skeleton-line v-skeleton-short" />
     </div>
     <div className="v-skeleton-side">
       {[0, 1, 2, 3].map((i) => (
-        <div key={i} className="v-skeleton-block" />
+        <div key={i} className="c-skeleton v-skeleton-block" />
       ))}
     </div>
   </div>

@@ -1,9 +1,7 @@
 import type { ReactNode } from "react";
 import { DurationBadge, EmailReplyBadge, TimecodeBadge } from "./Badge.tsx";
-import { StepGlyph, type StepState } from "./steps.tsx";
 
-// Blocs des Fondations Paper : carte vidéo, tuile de pipeline, commentaire,
-// segment de transcription, timeline.
+// Blocs des Fondations Paper : carte vidéo, commentaire, segment de transcription.
 
 /** Carte de la galerie : miniature (ou dégradé tant qu'il n'y en a pas), titre, méta. */
 export const VideoCard = ({
@@ -43,35 +41,6 @@ export const VideoCard = ({
       <p className="c-card-meta">{meta}</p>
     </div>
   </article>
-);
-
-const tileLabels: Record<StepState, string> = {
-  pending: "attente",
-  running: "en cours",
-  retry: "retry",
-  done: "succès",
-  failed: "échec",
-  disabled: "flag off",
-};
-
-/** Tuile d'une étape du pipeline (48 px) et son libellé mono. */
-export const PipelineTile = ({
-  state,
-  label,
-  detail,
-}: {
-  state: StepState;
-  /** Nom de l'étape ; par défaut, l'état. */
-  label?: string | undefined;
-  detail?: string | undefined;
-}) => (
-  <div className={`c-ptile c-ptile-${state}`}>
-    <div className="c-ptile-box">
-      <StepGlyph state={state} size={18} />
-    </div>
-    <span className="c-ptile-label">{label ?? tileLabels[state]}</span>
-    {detail && <span className="c-ptile-detail">{detail}</span>}
-  </div>
 );
 
 /** Commentaire horodaté ; le timecode est cliquable et fait sauter le lecteur. */
@@ -158,34 +127,3 @@ export const TranscriptLine = ({
     </span>
   </button>
 );
-
-/**
- * Timeline : segments = chapitres (remplis jusqu'à la tête de lecture), losanges =
- * commentaires. Les positions sont en fraction de la durée (0 à 1).
- */
-export const Timeline = ({
-  chapters,
-  markers,
-  progress,
-}: {
-  chapters: ReadonlyArray<{ readonly start: number; readonly end: number }>;
-  markers: ReadonlyArray<number>;
-  progress: number;
-}) => {
-  const segments = chapters.length > 0 ? chapters : [{ start: 0, end: 1 }];
-  return (
-    <div className="c-timeline">
-      {segments.map((s) => {
-        const fill = Math.min(1, Math.max(0, (progress - s.start) / (s.end - s.start || 1)));
-        return (
-          <span key={s.start} className="c-timeline-seg" style={{ flexGrow: s.end - s.start }}>
-            <span className="c-timeline-fill" style={{ width: `${fill * 100}%` }} />
-          </span>
-        );
-      })}
-      {markers.map((m, i) => (
-        <span key={`${m}-${i}`} className="c-timeline-marker" style={{ left: `${m * 100}%` }} />
-      ))}
-    </div>
-  );
-};

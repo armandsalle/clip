@@ -1,6 +1,7 @@
 import { Option, Schema } from "effect";
 import { VideoId } from "@clip/domain";
 import { UploadProtocol } from "@clip/contract";
+import { local } from "../util.ts";
 
 // Envoi en cours, mémorisé dans ce navigateur : après un rechargement, on propose de
 // reprendre (l'URL tus suffit, le serveur sait où il en est).
@@ -24,29 +25,12 @@ const codec = Schema.fromJsonString(PendingUpload);
 const decode = Schema.decodeUnknownOption(codec);
 const encode = Schema.encodeSync(codec);
 
-export const readPending = (): PendingUpload | null => {
-  try {
-    return Option.getOrNull(decode(localStorage.getItem(KEY)));
-  } catch {
-    return null;
-  }
-};
+export const readPending = (): PendingUpload | null => Option.getOrNull(decode(local.read(KEY)));
 
-export const writePending = (pending: PendingUpload) => {
-  try {
-    localStorage.setItem(KEY, encode(pending));
-  } catch {
-    // stockage indisponible : pas de reprise après rechargement, l'envoi continue
-  }
-};
+/** Sans stockage disponible, pas de reprise après rechargement : l'envoi continue. */
+export const writePending = (pending: PendingUpload) => local.write(KEY, encode(pending));
 
-export const clearPending = () => {
-  try {
-    localStorage.removeItem(KEY);
-  } catch {
-    // rien à faire
-  }
-};
+export const clearPending = () => local.remove(KEY);
 
 /** Le fichier choisi est bien celui de l'envoi interrompu. */
 export const isSameFile = (pending: PendingUpload, file: File) =>

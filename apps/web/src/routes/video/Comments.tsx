@@ -1,4 +1,4 @@
-import { useImperativeHandle, useRef, useState, type Ref } from "react";
+import { useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { DateTime } from "effect";
 import { Comment, CommentId, type VideoId } from "@clip/domain";
@@ -187,11 +187,20 @@ export const Comments = ({
   };
 
   const at = Math.min(duration, pinnedTime ?? time);
-  const roots = comments.filter((c) => c.parentId === null).toSorted((a, b) => a.time - b.time);
-  const repliesOf = (rootId: CommentId) =>
-    comments
-      .filter((c) => c.parentId === rootId)
-      .toSorted((a, b) => a.createdAt.epochMilliseconds - b.createdAt.epochMilliseconds);
+  // Fils construits une fois par liste de commentaires, pas à chaque tick du lecteur.
+  const { roots, replies: repliesByRoot } = useMemo(() => {
+    const replies = new Map<string, Array<Comment>>();
+    for (const c of comments) {
+      if (c.parentId !== null) replies.set(c.parentId, [...(replies.get(c.parentId) ?? []), c]);
+    }
+    for (const list of replies.values()) {
+      list.sort((a, b) => a.createdAt.epochMilliseconds - b.createdAt.epochMilliseconds);
+    }
+    return {
+      roots: comments.filter((c) => c.parentId === null).toSorted((a, b) => a.time - b.time),
+      replies,
+    };
+  }, [comments]);
   const ago = (c: Comment) => formatAgo(new Date(c.createdAt.epochMilliseconds));
 
   return (
@@ -253,7 +262,7 @@ export const Comments = ({
           </p>
         ) : (
           roots.map((c) => {
-            const replies = repliesOf(c.id);
+            const replies = repliesByRoot.get(c.id) ?? [];
             return (
               <div key={c.id} className={`v-thread ${freshIds.has(c.id) ? "v-fresh" : ""}`}>
                 <CommentItem

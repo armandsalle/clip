@@ -48,9 +48,19 @@ export class Videos extends Context.Service<
         const wasTerminal = isTerminal(video);
         for (const event of events) video = yield* Effect.fromResult(decide(video, event, now));
         yield* store.saveVideo(video);
-        // Expirée ou supprimée : le fichier vidéo disparaît de Stream.
-        if (!wasTerminal && isTerminal(video)) yield* stream.remove(video.streamUid);
         yield* live.publish(id, { _tag: "VideoChanged", video });
+        // Expirée ou supprimée : transcription, résultats et commentaires sont effacés,
+        // et le fichier quitte Stream. L'état est déjà enregistré : une panne de Stream
+        // ne fait pas échouer la demande (le fichier resterait orphelin, journalisé).
+        if (!wasTerminal && isTerminal(video)) {
+          yield* store.purgeContent(id);
+          yield* stream.remove(video.streamUid).pipe(
+            Effect.retry({ times: 2 }),
+            Effect.catchCause((cause) =>
+              Effect.logError("stream.remove", { videoId: id, streamUid: video.streamUid, cause }),
+            ),
+          );
+        }
         return video;
       });
 

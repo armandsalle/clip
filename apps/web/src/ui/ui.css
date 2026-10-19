@@ -228,18 +228,6 @@
 .c-timecode:hover {
   background: var(--clip-border);
 }
-.c-badge-outline {
-  border: 1px solid var(--clip-fg-2);
-  font-size: var(--clip-text-2xs);
-  font-weight: 600;
-  line-height: 14px;
-}
-.c-badge-muted {
-  color: var(--clip-fg-2);
-  font-size: var(--clip-text-2xs);
-  font-weight: 500;
-  line-height: 14px;
-}
 .c-badge-line {
   border: 1px solid var(--clip-border);
   color: var(--clip-fg-2);
@@ -336,65 +324,6 @@
   line-height: 16px;
 }
 
-/* Tuile de pipeline -------------------------------------------------------- */
-.c-ptile {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  width: 76px;
-  flex-shrink: 0;
-}
-.c-ptile-box {
-  display: grid;
-  place-items: center;
-  width: 48px;
-  height: 48px;
-  border: 1.5px solid var(--clip-border);
-  border-radius: 13px;
-  background: var(--clip-raised);
-}
-.c-ptile-label,
-.c-ptile-detail {
-  font: 10px / 12px var(--clip-font-mono);
-  color: var(--clip-fg-3);
-  text-align: center;
-}
-.c-ptile-running .c-ptile-box {
-  border-color: var(--clip-running);
-  background: color-mix(in srgb, var(--clip-running) 16%, transparent);
-  box-shadow: 0 0 22px color-mix(in srgb, var(--clip-running) 45%, transparent);
-}
-.c-ptile-running .c-ptile-label {
-  color: var(--clip-running);
-}
-.c-ptile-done .c-ptile-box {
-  border-color: color-mix(in srgb, var(--clip-success) 50%, transparent);
-  background: color-mix(in srgb, var(--clip-success) 14%, transparent);
-}
-.c-ptile-done .c-ptile-label {
-  color: var(--clip-success);
-}
-.c-ptile-failed .c-ptile-box {
-  border-color: var(--clip-failed);
-  background: color-mix(in srgb, var(--clip-failed) 14%, transparent);
-}
-.c-ptile-failed .c-ptile-label {
-  color: var(--clip-failed);
-}
-.c-ptile-retry .c-ptile-box {
-  border-color: var(--clip-retry);
-  background: color-mix(in srgb, var(--clip-retry) 14%, transparent);
-}
-.c-ptile-retry .c-ptile-label {
-  color: var(--clip-retry);
-}
-.c-ptile-disabled .c-ptile-box {
-  border-style: dashed;
-  border-color: var(--clip-disabled);
-  background: none;
-}
-
 /* Commentaire et transcription -------------------------------------------- */
 .c-comment,
 .c-segment {
@@ -456,41 +385,6 @@
   background: var(--clip-raised);
 }
 
-/* Timeline ----------------------------------------------------------------- */
-.c-timeline {
-  position: relative;
-  display: flex;
-  gap: 3px;
-  height: 6px;
-}
-.c-timeline-seg {
-  position: relative;
-  flex-basis: 0;
-  overflow: hidden;
-  background: var(--clip-border-strong);
-}
-.c-timeline-seg:first-child {
-  border-radius: 3px 0 0 3px;
-}
-.c-timeline-seg:last-of-type {
-  border-radius: 0 3px 3px 0;
-}
-.c-timeline-fill {
-  position: absolute;
-  inset: 0 auto 0 0;
-  background: var(--clip-fg);
-}
-.c-timeline-marker {
-  position: absolute;
-  top: -2px;
-  width: 10px;
-  height: 10px;
-  border: 2px solid var(--clip-bg);
-  background: var(--clip-marker);
-  transform: translateX(-50%) rotate(45deg);
-  pointer-events: none;
-}
-
 /* Barre du haut -------------------------------------------------------------- */
 .c-nav {
   display: flex;
@@ -550,4 +444,32 @@ a.c-btn {
   .c-nav-link {
     display: none;
   }
+}
+
+/* Squelettes et touches ---------------------------------------------------- */
+.c-skeleton {
+  border-radius: var(--clip-radius-md);
+  background: var(--clip-surface);
+  animation: c-pulse 1.8s ease-in-out infinite;
+}
+@keyframes c-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .c-skeleton {
+    animation: none;
+  }
+}
+kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding-inline: 5px;
+  border: 1px solid var(--clip-border);
+  border-radius: 5px;
+  color: var(--clip-fg-2);
+  font: var(--clip-text-2xs) / 14px var(--clip-font-mono);
 }

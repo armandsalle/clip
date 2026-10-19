@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import type { VideoId } from "@clip/domain";
+import { isTerminal, type VideoId } from "@clip/domain";
 import { VideoView } from "@clip/contract";
 import { ApiError, errorMessage } from "../../api/client.ts";
 import { commentsQuery, keys, updateVideo, videoQuery } from "../../api/queries.ts";
@@ -103,8 +103,7 @@ export const VideoPage = ({ id }: { id: VideoId }) => {
   const comments = useQuery(commentsQuery(id));
   const [adminKey] = useState(() => adminKeyFor(id));
   const [name] = useState(() => viewerName() ?? "Invité");
-  const alive =
-    video.data !== undefined && !["Expired", "Deleted"].includes(video.data.video.status._tag);
+  const alive = video.data !== undefined && !isTerminal(video.data.video);
   const live = useLiveVideo(id, name, alive);
   const [start] = useState(() => startPosition(id, new URLSearchParams(location.search), session));
   // ?lecteur=natif : lecteur HLS du navigateur, pour le comparer à hls.js.
@@ -131,11 +130,26 @@ export const VideoPage = ({ id }: { id: VideoId }) => {
     history.replaceState(history.state, "", url.pathname + url.search + url.hash);
   }, [start.shareParam]);
 
+  // Abonné une fois : la position est lue au moment de partir, pas à chaque tick.
   useEffect(() => {
-    const save = () => savePosition(id, player.current?.currentTime() ?? time, session);
+    const save = () => {
+      const t = player.current?.currentTime();
+      if (t !== undefined) savePosition(id, t, session);
+    };
     addEventListener("pagehide", save);
     return () => removeEventListener("pagehide", save);
-  }, [id, time]);
+  }, [id]);
+
+  // Stables entre deux ticks du lecteur (4×/s) : le préchargement des chapitres et
+  // commentaires n'est plus relancé à chaque rendu.
+  const commentTimes = useMemo(
+    () => (comments.data ?? []).filter((c) => c.parentId === null).map((c) => c.time),
+    [comments.data],
+  );
+  const otherViewers = useMemo(
+    () => live.viewers.filter((v) => v.name !== name),
+    [live.viewers, name],
+  );
 
   useEffect(() => {
     if (!toast) return;
@@ -201,7 +215,7 @@ export const VideoPage = ({ id }: { id: VideoId }) => {
       );
     }
     const status = view.video.status;
-    if (status._tag === "Expired" || status._tag === "Deleted") {
+    if (isTerminal(view.video)) {
       return (
         <Unavailable
           detail={
@@ -240,8 +254,8 @@ export const VideoPage = ({ id }: { id: VideoId }) => {
               duration={duration}
               startAt={start.time}
               chapters={chapters}
-              commentTimes={list.filter((c) => c.parentId === null).map((c) => c.time)}
-              viewers={live.viewers.filter((v) => v.name !== name)}
+              commentTimes={commentTimes}
+              viewers={otherViewers}
               hd={live.steps.hd ?? view.enrichments.hd}
               engine={engine}
               onTime={(t, playing) => {

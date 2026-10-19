@@ -18,11 +18,6 @@ export class Notifications extends Context.Service<
           ),
       });
     });
-
-  static readonly layerNoop = Layer.succeed(
-    Notifications,
-    Notifications.of({ enqueue: () => Effect.void }),
-  );
 }
 
 /** Décodage côté consommateur : un message d'une autre forme est écarté (et journalisé). */

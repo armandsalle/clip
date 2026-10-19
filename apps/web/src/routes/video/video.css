@@ -327,17 +327,6 @@
   align-items: center;
   gap: 6px;
 }
-kbd {
-  display: inline-grid;
-  place-items: center;
-  min-width: 20px;
-  height: 20px;
-  padding-inline: 5px;
-  border: 1px solid var(--clip-border);
-  border-radius: 5px;
-  color: var(--clip-fg-2);
-  font: var(--clip-text-2xs) / 14px var(--clip-font-mono);
-}
 
 /* Infos et chapitres -------------------------------------------------------- */
 .v-info {
@@ -885,13 +874,6 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: 16px;
-}
-.v-skeleton-player,
-.v-skeleton-line,
-.v-skeleton-block {
-  border-radius: var(--clip-radius-md);
-  background: var(--clip-surface);
-  animation: g-pulse 1.8s ease-in-out infinite;
 }
 .v-skeleton-player {
   aspect-ratio: 16 / 9;
