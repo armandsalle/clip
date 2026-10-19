@@ -62,7 +62,8 @@ jobs:
       - run: command -v ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg)
       - id: env
         run: vp run pr:up ${{ github.event.pull_request.number }}
-      - run: vp run smoke ${{ steps.env.outputs.url }}
+      # Par workers.dev : le Bot Fight Mode de clipshare.dev bloque les runners (403).
+      - run: vp run smoke ${{ steps.env.outputs.ci_url }}
       - name: Commentaire sur la PR
         if: always()
         uses: actions/github-script@v9
@@ -109,4 +110,6 @@ jobs:
       - run: vp run @clip/jobs#deploy
       - run: vp run @clip/api#deploy
       - run: vp run @clip/web#deploy
+      # Indicatif : le Bot Fight Mode de clipshare.dev peut répondre 403 aux runners.
       - run: curl --fail --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors https://clipshare.dev/api/health
+        continue-on-error: true

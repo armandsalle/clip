@@ -154,12 +154,12 @@ const emptyBucket = () => {
  * Attend que pr-<n>.clipshare.dev réponde. Au premier déploiement, Cloudflare émet le
  * certificat du domaine personnalisé : constaté entre 5 et 10 minutes.
  */
-const waitForHealth = async () => {
+const waitForHealth = async (base: string) => {
   const started = Date.now();
   let last = "";
   while (Date.now() - started < 15 * 60_000) {
     try {
-      const response = await fetch(`${url}/api/health`);
+      const response = await fetch(`${base}/api/health`);
       if (response.ok) return;
       last = `HTTP ${response.status}`;
     } catch (error) {
@@ -170,7 +170,7 @@ const waitForHealth = async () => {
     if (elapsed % 60 < 10) console.log(`  ${elapsed} s : ${last}`);
     await new Promise((r) => setTimeout(r, 10_000));
   }
-  throw new Error(`${url} ne répond pas après 15 minutes (${last})`);
+  throw new Error(`${base} ne répond pas après 15 minutes (${last})`);
 };
 
 // Actions ----------------------------------------------------------------------------------
@@ -203,32 +203,43 @@ const up = async () => {
   };
   const deploy = (app: "jobs" | "api" | "web", bootstrap = false) => {
     step(`Déploiement de ${names.workers[app]}${bootstrap ? " (amorce, sans RPC)" : ""}`);
-    cf(["deploy", "--mode", mode, "--message", `PR #${pr}`], {
-      app,
-      env: { ...deployEnv, CLIP_BOOTSTRAP: bootstrap ? "1" : "0" },
-      inherit: true,
-    });
+    try {
+      const out = cf(["deploy", "--mode", mode, "--message", `PR #${pr}`], {
+        app,
+        env: { ...deployEnv, CLIP_BOOTSTRAP: bootstrap ? "1" : "0" },
+      });
+      console.log(out);
+      return out;
+    } catch (error) {
+      // Sortie capturée (pour l'URL workers.dev) : on la montre avant d'échouer.
+      console.log(String((error as { stdout?: unknown }).stdout ?? ""));
+      throw error;
+    }
   };
   // jobs → api (RPC) et api → jobs (Workflow) se référencent : au premier déploiement,
   // jobs part sans binding vers api, puis est redéployé complet une fois api en place.
   const firstDeploy = !workerExists(names.workers.api);
   deploy("jobs", firstDeploy);
   deploy("api");
-  deploy("web");
+  // URL workers.dev de clip-web, affichée par `cf deploy` : celle que la CI utilise, car
+  // le Bot Fight Mode de la zone bloque les runners sur pr-<n>.clipshare.dev.
+  const ciUrl = /https:\/\/[\w.-]+\.workers\.dev/.exec(deploy("web"))?.[0] ?? url;
   if (firstDeploy) deploy("jobs");
 
-  step(`Attente de ${url}`);
-  await waitForHealth();
+  step(`Attente de ${ciUrl}`);
+  await waitForHealth(ciUrl);
 
   step("Vidéos de démo");
   execFileSync("node", ["scripts/seed.ts", "--reset"], {
     cwd: `${root}packages/db`,
-    env: { ...baseEnv(), ...dbEnv, CLIP_DEV_URL: url },
+    env: { ...baseEnv(), ...dbEnv, CLIP_DEV_URL: ciUrl },
     stdio: "inherit",
   });
 
-  console.log(`\n✓ ${url}`);
-  if (process.env.GITHUB_OUTPUT) appendFileSync(process.env.GITHUB_OUTPUT, `url=${url}\n`);
+  console.log(`\n✓ ${url} (CI : ${ciUrl})`);
+  if (process.env.GITHUB_OUTPUT) {
+    appendFileSync(process.env.GITHUB_OUTPUT, `url=${url}\nci_url=${ciUrl}\n`);
+  }
 };
 
 const down = async () => {
