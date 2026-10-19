@@ -215,6 +215,17 @@ const up = async () => {
     stdio: "inherit",
   });
 
+  if (existing === null) {
+    // Branche neuve, copiée de la prod : vidée une fois, juste après les migrations (les
+    // pushs suivants gardent les vidéos déposées pendant la revue).
+    step("Base de la PR vidée");
+    execFileSync("node", ["scripts/seed.ts", "--reset", "--no-demo"], {
+      cwd: `${root}packages/db`,
+      env: { ...baseEnv(), ...dbEnv },
+      stdio: "inherit",
+    });
+  }
+
   step(`Hyperdrive ${names.hyperdrive}`);
   const hyperdriveId = ensureHyperdrive(db);
 
@@ -254,17 +265,6 @@ const up = async () => {
 
   step(`Attente de ${ciUrl}`);
   await waitForHealth(ciUrl);
-
-  if (existing === null) {
-    // Branche neuve, copiée de la prod : vidée une fois (les pushs suivants gardent les
-    // vidéos déposées pendant la revue).
-    step("Base de la PR vidée");
-    execFileSync("node", ["scripts/seed.ts", "--reset", "--no-demo"], {
-      cwd: `${root}packages/db`,
-      env: { ...baseEnv(), ...dbEnv },
-      stdio: "inherit",
-    });
-  }
 
   console.log(`\n✓ ${url} (CI : ${ciUrl})`);
   if (process.env.GITHUB_OUTPUT) {
