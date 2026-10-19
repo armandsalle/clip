@@ -63,6 +63,13 @@ export const modeOfStreamCreator = (creator: string | null | undefined): string 
 /** Config Hyperdrive « clip-neon » (connexion directe vers Neon, eu-central-1, sans cache). */
 export const HYPERDRIVE_ID = "db72ca80c92e4ba5978e21c0e2121ae8";
 
+/**
+ * Placement des Workers qui parlent à la base (api, jobs) : à côté de Neon, sinon
+ * chaque requête Hyperdrive paie l'aller-retour depuis le point de présence du visiteur.
+ * clip-web reste à la périphérie (fichiers statiques, proxy vers api).
+ */
+export const NEAR_DATABASE: { region: string } = { region: "aws:eu-central-1" };
+
 export const runtime: {
   compatibilityDate: string;
   compatibilityFlags: Array<string>;

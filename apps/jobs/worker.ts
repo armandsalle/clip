@@ -1,5 +1,5 @@
 import { bindings, defineWorker, defineContainer, exports, triggers } from "cf/config";
-import { ACCOUNT_ID, runtime, SECRETS_STORE_ID, settings } from "@clip/config";
+import { ACCOUNT_ID, NEAR_DATABASE, runtime, SECRETS_STORE_ID, settings } from "@clip/config";
 
 /** Planche de vignettes (aperçu au survol de la timeline) : ffmpeg hors du Worker. */
 export const storyboard = defineContainer({
@@ -20,6 +20,7 @@ export const jobsWorker = (mode: string | undefined, containers = withContainers
     name,
     ...runtime,
     workersDev: false,
+    placement: NEAR_DATABASE,
     env: {
       STORE: bindings.text(s.store),
       REMOTE: bindings.text(s.remote ? "1" : "0"),
