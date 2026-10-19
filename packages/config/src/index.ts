@@ -94,6 +94,12 @@ export interface Settings {
   /** `postgres` dès qu'une URL est disponible ; CLIP_STORE=memory force la mémoire. */
   readonly store: "postgres" | "memory";
   readonly hyperdriveId: string;
+  /**
+   * Premier déploiement d'un environnement de PR (CLIP_BOOTSTRAP=1) : clip-jobs part
+   * sans binding vers clip-api, qui n'existe pas encore (et qui référence le Workflow
+   * de jobs). `pr:up` redéploie jobs complet juste après api.
+   */
+  readonly bootstrap: boolean;
   readonly chaos: string;
 }
 
@@ -143,6 +149,7 @@ export const settings = (mode: string | undefined): Settings => {
     // Une PR a toujours sa base (branche Neon pr-<n>) : jamais de stockage en mémoire.
     store: !preview && (process.env.CLIP_STORE === "memory" || !url) ? "memory" : "postgres",
     hyperdriveId,
+    bootstrap: preview && process.env.CLIP_BOOTSTRAP === "1",
     chaos: process.env.CLIP_CHAOS ?? "0",
   };
 };

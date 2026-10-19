@@ -63,6 +63,15 @@ const cfJson = <A>(args: ReadonlyArray<string>): A => {
   return JSON.parse(start === -1 ? out : out.slice(start)) as A;
 };
 
+const workerExists = (name: string) => {
+  try {
+    cf(["workers", "get", name]);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 /** Une commande dont l'échec veut seulement dire « déjà absent ». */
 const attempt = (label: string, f: () => void) => {
   try {
@@ -183,14 +192,21 @@ const up = async () => {
     CLIP_EMAIL_ROUTING: "0",
     CLIP_STREAM_WEBHOOK: "0",
   };
-  for (const app of ["jobs", "api", "web"] as const) {
-    step(`Déploiement de ${names.workers[app]}`);
+  const deploy = (app: "jobs" | "api" | "web", bootstrap = false) => {
+    step(`Déploiement de ${names.workers[app]}${bootstrap ? " (amorce, sans RPC)" : ""}`);
     cf(["deploy", "--mode", mode, "--message", `PR #${pr}`], {
       app,
-      env: deployEnv,
+      env: { ...deployEnv, CLIP_BOOTSTRAP: bootstrap ? "1" : "0" },
       inherit: true,
     });
-  }
+  };
+  // jobs → api (RPC) et api → jobs (Workflow) se référencent : au premier déploiement,
+  // jobs part sans binding vers api, puis est redéployé complet une fois api en place.
+  const firstDeploy = !workerExists(names.workers.api);
+  deploy("jobs", firstDeploy);
+  deploy("api");
+  deploy("web");
+  if (firstDeploy) deploy("jobs");
 
   step(`Attente de ${url}`);
   await waitForHealth();

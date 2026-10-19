@@ -39,7 +39,7 @@ const PlatformLive = LiveViaApi.pipe(
         media: env.MEDIA,
       }),
       AiFor(remote ? env.AI || undefined : undefined),
-      InternalApi.layer(env.API),
+      InternalApi.layer(env.API || InternalApi.unavailable),
       env.MAIL ? Mailer.layer(env.MAIL, env.DOMAIN) : Mailer.layerDisabled(env.DOMAIN),
       Features.layer({ ai: true, storyboard: false, chaos: Number(env.CHAOS) || 0 }),
     ),
