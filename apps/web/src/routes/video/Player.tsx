@@ -141,11 +141,22 @@ export const Player = ({
         // Auto : plafond à la taille réelle du lecteur × densité de pixels.
         capLevelToPlayerSize: true,
         abrEwmaDefaultEstimate: 5_000_000,
+        // Pas de mesure de débit sur un premier segment basse qualité : on démarre au
+        // niveau choisi ci-dessous, l'ABR redescend ensuite si la connexion ne suit pas.
+        testBandwidth: false,
         startFragPrefetch: true,
         startPosition: startAt > 0 ? startAt : -1,
       });
       instance.subtitleDisplay = false;
       instance.on(Hls.Events.MANIFEST_PARSED, (_e, data) => {
+        // Démarrage directement dans la meilleure qualité que le lecteur peut afficher
+        // (hauteur réelle × densité de pixels), au lieu du premier niveau du manifeste.
+        const target = Math.ceil(v.clientHeight * (window.devicePixelRatio || 1));
+        const ranked = data.levels
+          .map((l, index) => ({ index, height: l.height }))
+          .sort((a, b) => a.height - b.height);
+        const start = ranked.findLast((l) => l.height <= target) ?? ranked[0];
+        if (start) instance.startLevel = start.index;
         setLevels(
           data.levels
             .map((l, index) => ({ index, height: l.height }))
