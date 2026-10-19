@@ -17,6 +17,7 @@ import {
 import { Db, Store } from "@clip/db";
 import { ApiRoutes } from "./http.ts";
 import { InternalRoutes } from "./internal.ts";
+import { devStream } from "./devStream.ts";
 import { Videos } from "./Videos.ts";
 
 export { VideoRoom } from "./room.ts";
@@ -77,49 +78,17 @@ const captionsVtt = Effect.fn("captionsVtt")(function* (videoId: VideoId) {
   return segments.length === 0 ? null : toVtt(segments);
 });
 
-async function devStream(request: Request, uid: string, thumbnail: boolean): Promise<Response> {
-  const key = `dev-stream/${uid}`;
-  if (thumbnail) {
-    return new Response(
-      `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360"><rect width="100%" height="100%" fill="#1d1d22"/><text x="50%" y="50%" fill="#8b8b94" font-family="monospace" font-size="20" text-anchor="middle">${uid.slice(0, 12)}</text></svg>`,
-      { headers: { "content-type": "image/svg+xml", "x-content-type-options": "nosniff" } },
-    );
-  }
-  if (request.method === "PUT" || request.method === "POST") {
-    // Écriture seulement pour un dépôt créé par l'API et encore en cours : le faux
-    // Stream (dev local, environnements de PR) n'héberge pas de fichiers arbitraires.
-    const accepting = await runtime.runPromise(
-      Effect.gen(function* () {
-        const store = yield* Store;
-        const videoId = yield* store.findByStreamUid(uid);
-        if (videoId === null) return false;
-        const video = yield* store.getVideo(videoId).pipe(Effect.option);
-        return Option.isSome(video) && video.value.status._tag === "Uploading";
-      }),
-    );
-    if (!accepting) return new Response("upload inconnu", { status: 404 });
-    await env.MEDIA.put(key, request.body, {
-      // Type imposé : jamais celui du client (sinon du HTML servi depuis clipshare.dev).
-      httpMetadata: { contentType: "video/mp4" },
-      customMetadata: { duration: request.headers.get("x-clip-duration") ?? "60" },
-    });
-    return new Response(null, { status: 201 });
-  }
-  const object = await env.MEDIA.get(key, { range: request.headers });
-  if (!object) return new Response("not found", { status: 404 });
-  const headers = new Headers({
-    "accept-ranges": "bytes",
-    "content-type": "video/mp4",
-    "x-content-type-options": "nosniff",
-    "content-security-policy": "default-src 'none'; sandbox",
-  });
-  if (object.range && "offset" in object.range) {
-    const { offset = 0, length = object.size - offset } = object.range;
-    headers.set("content-range", `bytes ${offset}-${offset + length - 1}/${object.size}`);
-    return new Response(object.body, { status: 206, headers });
-  }
-  return new Response(object.body, { headers });
-}
+/** Le faux Stream n'accepte un fichier que pour un dépôt créé par l'API et encore en cours. */
+const acceptingUpload = (uid: string) => () =>
+  runtime.runPromise(
+    Effect.gen(function* () {
+      const store = yield* Store;
+      const videoId = yield* store.findByStreamUid(uid);
+      if (videoId === null) return false;
+      const video = yield* store.getVideo(videoId).pipe(Effect.option);
+      return Option.isSome(video) && video.value.status._tag === "Uploading";
+    }),
+  );
 
 /** Webhook Stream : vérifie la signature, puis réveille le Workflow de la vidéo. */
 async function streamWebhook(request: Request): Promise<Response> {
@@ -168,7 +137,8 @@ export default {
       return room.fetch(request);
     }
     const dev = !remote && DEV_STREAM_ROUTE.exec(url.pathname);
-    if (dev) return devStream(request, dev[1]!, dev[2] !== undefined);
+    if (dev)
+      return devStream(request, dev[1]!, dev[2] !== undefined, env.MEDIA, acceptingUpload(dev[1]!));
     return api.handler(request);
   },
 } satisfies ExportedHandler<Env>;

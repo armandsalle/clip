@@ -148,10 +148,14 @@ export class StreamVideos extends Context.Service<
     Layer.succeed(
       StreamVideos,
       StreamVideos.of({
-        createUpload: () =>
-          Effect.sync(() => {
+        // tus, comme le vrai Stream (morceaux de 50 Mo : derrière un domaine Cloudflare,
+        // un corps de plus de 100 Mo est refusé). L'état du dépôt vit à côté du fichier
+        // (voir apps/api/src/devStream.ts).
+        createUpload: (_maxDurationSeconds, size) =>
+          Effect.promise(async () => {
             const uid = StreamUid.make(`dev-${crypto.randomUUID()}`);
-            return { uid, uploadUrl: `/dev/stream/${uid}`, protocol: "put" as const };
+            await bucket.put(`dev-stream/${uid}.tus`, JSON.stringify({ length: size, offset: 0 }));
+            return { uid, uploadUrl: `/dev/stream/${uid}`, protocol: "tus" as const };
           }),
         details: (uid) =>
           Effect.promise(() => bucket.head(`dev-stream/${uid}`)).pipe(
