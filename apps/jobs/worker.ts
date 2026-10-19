@@ -27,6 +27,15 @@ export const jobsWorker = (mode: string | undefined, containers = withContainers
       // Avec le webhook, l'encodage attend l'événement ; sans, il sonde plus souvent.
       STREAM_WEBHOOK: bindings.text(s.webhook ? "1" : "0"),
       ACCOUNT_ID: bindings.text(ACCOUNT_ID),
+      // Observabilité : export OTLP des spans et logs Effect (PostHog), si configuré.
+      ENVIRONMENT: bindings.text(s.mode),
+      POSTHOG_HOST: !!s.posthogHost && bindings.text(s.posthogHost),
+      POSTHOG_PROJECT_TOKEN:
+        !!s.posthogHost &&
+        bindings.secretsStoreSecret({
+          storeId: SECRETS_STORE_ID,
+          secretName: "POSTHOG_PROJECT_TOKEN",
+        }),
       STREAM: s.remote && bindings.stream({ dev: { remote: true } }),
       STREAM_API_TOKEN:
         s.remote &&

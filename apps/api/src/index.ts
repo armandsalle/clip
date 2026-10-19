@@ -7,10 +7,12 @@ import {
   isReady,
   Live,
   makeWorkerRuntime,
+  posthogTarget,
   Notifications,
   Pipeline,
   RateLimits,
   StreamVideos,
+  telemetryLayer,
   toVtt,
   verifyStreamWebhook,
 } from "@clip/platform";
@@ -47,7 +49,16 @@ const PlatformLive = Videos.layer.pipe(
   ),
 );
 
-const { runtime, http } = makeWorkerRuntime(PlatformLive);
+const telemetry = telemetryLayer({
+  service: "clip-api",
+  environment: env.ENVIRONMENT,
+  target: posthogTarget({
+    host: env.POSTHOG_HOST || undefined,
+    token: env.POSTHOG_PROJECT_TOKEN || undefined,
+  }),
+});
+
+const { runtime, http, flush } = makeWorkerRuntime(PlatformLive, telemetry);
 const api = http(ApiRoutes.pipe(Layer.provide(PlatformLive)));
 const internal = http(InternalRoutes.pipe(Layer.provide(PlatformLive)));
 
@@ -147,7 +158,15 @@ async function streamWebhook(request: Request): Promise<Response> {
 }
 
 export default {
-  async fetch(request) {
+  async fetch(request, _env, ctx) {
+    const response = await route(request);
+    ctx.waitUntil(flush());
+    return response;
+  },
+} satisfies ExportedHandler<Env>;
+
+async function route(request: Request): Promise<Response> {
+  {
     const url = new URL(request.url);
     if (request.method === "POST" && url.pathname === "/api/stream/webhook") {
       return streamWebhook(request);
@@ -170,12 +189,14 @@ export default {
     const dev = !remote && DEV_STREAM_ROUTE.exec(url.pathname);
     if (dev) return devStream(request, dev[1]!, dev[2] !== undefined);
     return api.handler(request);
-  },
-} satisfies ExportedHandler<Env>;
+  }
+}
 
 /** RPC interne : seul clip-jobs y accède, par service binding (aucune route publique). */
 export class Internal extends WorkerEntrypoint<Env> {
-  override fetch(request: Request): Promise<Response> {
-    return internal.handler(request);
+  override async fetch(request: Request): Promise<Response> {
+    const response = await internal.handler(request);
+    this.ctx.waitUntil(flush());
+    return response;
   }
 }

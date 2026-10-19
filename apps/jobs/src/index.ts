@@ -16,7 +16,9 @@ import {
   LiveViaApi,
   Mailer,
   makeWorkerRuntime,
+  posthogTarget,
   StreamVideos,
+  telemetryLayer,
 } from "@clip/platform";
 import { Db, Store } from "@clip/db";
 import * as Pipeline from "./pipeline.ts";
@@ -46,12 +48,29 @@ const PlatformLive = LiveViaApi.pipe(
   ),
 );
 
-const { runtime } = makeWorkerRuntime(PlatformLive);
+const telemetry = telemetryLayer({
+  service: "clip-jobs",
+  environment: env.ENVIRONMENT,
+  target: posthogTarget({
+    host: env.POSTHOG_HOST || undefined,
+    token: env.POSTHOG_PROJECT_TOKEN || undefined,
+  }),
+});
+
+const { runtime, flush } = makeWorkerRuntime(PlatformLive, telemetry);
 
 type Services = Layer.Success<typeof PlatformLive>;
-/** Une étape de Workflow échoue (et sera rejouée) si l'Effect échoue. */
-const run = <A, E>(effect: Effect.Effect<A, E, Services>) =>
-  runtime.runPromise(effect.pipe(Effect.orDie));
+/**
+ * Une étape de Workflow échoue (et sera rejouée) si l'Effect échoue. Les spans et logs
+ * sont envoyés à la fin de chaque exécution : rien ne garantit que l'isolat survive.
+ */
+const run = async <A, E>(effect: Effect.Effect<A, E, Services>) => {
+  try {
+    return await runtime.runPromise(effect.pipe(Effect.orDie));
+  } finally {
+    await flush();
+  }
+};
 /** Résultat d'étape sérialisable (les Workflows stockent du JSON). */
 const json =
   <A, E>(effect: Effect.Effect<A, E, Services>) =>
@@ -89,6 +108,7 @@ export default {
         }),
       ).pipe(Effect.result),
     );
+    await flush();
     if (result._tag === "Failure") {
       const reason =
         result.failure._tag === "ReplyRejected" ? result.failure.reason : "erreur temporaire";

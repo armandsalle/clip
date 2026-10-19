@@ -95,6 +95,12 @@ export interface Settings {
   readonly store: "postgres" | "memory";
   readonly hyperdriveId: string;
   readonly chaos: string;
+  /**
+   * Export OTLP des spans et logs Effect vers PostHog (`https://us.i.posthog.com` ou
+   * `https://eu.i.posthog.com`) ; absent : pas d'export. Le token du projet est rangé
+   * dans le Secrets Store sous POSTHOG_PROJECT_TOKEN.
+   */
+  readonly posthogHost: string | undefined;
 }
 
 /** Noms des Workers et des ressources d'un mode (sans lire l'environnement). */
@@ -144,6 +150,7 @@ export const settings = (mode: string | undefined): Settings => {
     store: !preview && (process.env.CLIP_STORE === "memory" || !url) ? "memory" : "postgres",
     hyperdriveId,
     chaos: process.env.CLIP_CHAOS ?? "0",
+    posthogHost: process.env.CLIP_POSTHOG_HOST,
   };
 };
 

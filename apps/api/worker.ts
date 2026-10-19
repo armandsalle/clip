@@ -17,6 +17,15 @@ export const apiWorker = (mode: string | undefined) => {
       STORE: bindings.text(s.store),
       REMOTE: bindings.text(s.remote ? "1" : "0"),
       ACCOUNT_ID: bindings.text(ACCOUNT_ID),
+      // Observabilité : export OTLP des spans et logs Effect (PostHog), si configuré.
+      ENVIRONMENT: bindings.text(s.mode),
+      POSTHOG_HOST: !!s.posthogHost && bindings.text(s.posthogHost),
+      POSTHOG_PROJECT_TOKEN:
+        !!s.posthogHost &&
+        bindings.secretsStoreSecret({
+          storeId: SECRETS_STORE_ID,
+          secretName: "POSTHOG_PROJECT_TOKEN",
+        }),
       // Vidéo et médias. Token API Stream (Stream:Edit) pour l'upload tus, rangé une
       // fois dans le Secrets Store du compte ; en local, copie locale (`--local`).
       STREAM: s.remote && bindings.stream({ dev: { remote: true } }),
