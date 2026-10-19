@@ -1,0 +1,77 @@
+/*
+ * Tokens Clip v2, repris tels quels du fichier Paper (« Fondations · Clip v2 »).
+ * Une salle éteinte : la couleur ne sert qu'aux états, aux intervenants et à la présence.
+ */
+:root {
+  color-scheme: dark;
+
+  /* Surfaces et texte */
+  --clip-bg: #0b0b0c;
+  --clip-surface: #141416;
+  --clip-raised: #1e1e21;
+  --clip-border: #2a2a2e;
+  --clip-border-strong: #3a3a40;
+  --clip-fg: #ededef;
+  --clip-fg-2: #8f8f96;
+  --clip-fg-3: #5e5e66;
+
+  /* États */
+  --clip-running: #4c8dff;
+  --clip-success: #3dd68c;
+  --clip-failed: #ff6369;
+  --clip-retry: #ffb224;
+  --clip-disabled: #4a4a50;
+
+  /* Intervenants et présence */
+  --clip-speaker-1: #7cb4ff;
+  --clip-speaker-2: #f2a3c4;
+  --clip-speaker-3: #9fddb4;
+  --clip-presence-1: #f4a7b9;
+  --clip-presence-2: #a7c7f4;
+  --clip-presence-3: #b9e4a1;
+  --clip-presence-4: #e9d29a;
+
+  /* Rôles */
+  --clip-button-bg: var(--clip-fg);
+  --clip-button-fg: var(--clip-bg);
+  --clip-field-bg: var(--clip-raised);
+  --clip-marker: var(--clip-fg);
+  --clip-overlay: #000000b8;
+
+  /* Typographie */
+  --clip-font-sans: "Geist", system-ui, sans-serif;
+  --clip-font-mono: "Geist Mono", ui-monospace, monospace;
+  --clip-text-2xs: 11px;
+  --clip-text-xs: 12px;
+  --clip-text-sm: 13px;
+  --clip-text-base: 14px;
+  --clip-text-md: 15px;
+  --clip-text-lg: 17px;
+  --clip-text-xl: 22px;
+  --clip-text-2xl: 28px;
+  --clip-text-3xl: 44px;
+  --clip-tracking-display: -0.035em;
+  --clip-tracking-title: -0.02em;
+  --clip-tracking-tight: -0.01em;
+  --clip-tracking-caps: 0.08em;
+
+  /* Rayons et espacements */
+  --clip-radius-xs: 6px;
+  --clip-radius-sm: 8px;
+  --clip-radius-md: 12px;
+  --clip-radius-lg: 16px;
+  --clip-radius-xl: 24px;
+  --clip-radius-pill: 999px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Alias historiques (styles.css v1, retirés avec l'ancien code) */
+  --font-sans: var(--clip-font-sans);
+  --font-mono: var(--clip-font-mono);
+}

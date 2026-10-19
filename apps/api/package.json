@@ -2,28 +2,27 @@
   "name": "@clip/api",
   "private": true,
   "type": "module",
+  "exports": {
+    "./testing": "./src/testing.ts"
+  },
   "scripts": {
     "types": "cf workers types",
     "test": "vp test"
   },
   "dependencies": {
     "@clip/contract": "workspace:*",
+    "@clip/db": "workspace:*",
     "@clip/domain": "workspace:*",
-    "@effect/sql-pg": "catalog:",
-    "drizzle-orm": "catalog:",
-    "effect": "catalog:",
-    "postal-mime": "catalog:"
+    "@clip/platform": "workspace:*",
+    "effect": "catalog:"
   },
   "devDependencies": {
-    "@clip/web": "catalog:",
+    "@clip/config": "workspace:*",
+    "@clip/testing": "workspace:*",
     "@cloudflare/vite-plugin": "catalog:",
-    "@effect/sql-pglite": "catalog:",
     "@effect/vitest": "catalog:",
     "@types/node": "catalog:",
-    "@vitejs/plugin-react": "catalog:",
     "cf": "catalog:",
-    "drizzle-kit": "catalog:",
-    "pg": "catalog:",
     "typescript": "catalog:",
     "vite-plus": "catalog:"
   }

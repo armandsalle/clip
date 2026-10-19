@@ -6,12 +6,21 @@ interface Viewer {
   readonly id: string;
   readonly name: string;
   readonly time: number;
-  /** Dernier signe de vie (ms). Le client envoie sa position au moins toutes les 10 s. */
+  /** Dernier signe de vie (ms) : connexion ou message. */
   readonly seen: number;
+  /** Dernier message accepté (ms), pour limiter le débit ; 0 avant le premier. */
+  readonly lastMessage?: number;
 }
 
-/** Au-delà, un socket est considéré comme abandonné (onglet fermé sans close). */
-const STALE_MS = 30_000;
+/**
+ * Sans message ni ping depuis ce délai, un spectateur sort de la présence (onglet
+ * fermé sans close). Le socket n'est pas fermé : le navigateur s'en charge.
+ */
+const STALE_MS = 2 * 60_000;
+/** Message client le plus rapproché accepté (les autres sont ignorés). */
+const MIN_MESSAGE_INTERVAL_MS = 1000;
+/** Présence diffusée au plus une fois par seconde, quel que soit le nombre de spectateurs. */
+const PRESENCE_DEBOUNCE_MS = 1000;
 
 const ClientMessage = Schema.fromJsonString(
   Schema.Struct({ type: Schema.Literal("time"), time: Schema.Finite }),
@@ -20,11 +29,19 @@ const decodeClient = Schema.decodeUnknownOption(ClientMessage);
 const encodeEvent = Schema.encodeSync(Schema.fromJsonString(LiveEvent));
 
 /**
- * Une room par vidéo : WebSockets hibernables (la room ne coûte rien entre deux
- * messages), diffusion des événements du pipeline et des commentaires, et présence
- * (qui regarde, à quel moment de la vidéo).
+ * Une room par vidéo : WebSockets hibernables, diffusion des événements du pipeline
+ * et des commentaires, présence (qui regarde, à quel moment de la vidéo).
+ *
+ * Pour que la room hiberne vraiment : les pings du client reçoivent leur pong sans
+ * réveiller l'objet (`setWebSocketAutoResponse`), et la présence est regroupée par
+ * une alarme plutôt que diffusée à chaque message.
  */
 export class VideoRoom extends DurableObject<Env> {
+  constructor(ctx: DurableObjectState, env: Env) {
+    super(ctx, env);
+    ctx.setWebSocketAutoResponse(new WebSocketRequestResponsePair("ping", "pong"));
+  }
+
   override async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
 
@@ -38,7 +55,7 @@ export class VideoRoom extends DurableObject<Env> {
       };
       this.ctx.acceptWebSocket(server);
       server.serializeAttachment(viewer);
-      this.broadcastPresence();
+      await this.schedulePresence();
       return new Response(null, { status: 101, webSocket: client });
     }
 
@@ -50,47 +67,56 @@ export class VideoRoom extends DurableObject<Env> {
     return new Response("not found", { status: 404 });
   }
 
-  override webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): void {
-    if (typeof message !== "string") return;
+  override async webSocketMessage(ws: WebSocket, message: string | ArrayBuffer): Promise<void> {
+    if (typeof message !== "string" || message.length > 256) return;
+    const viewer = ws.deserializeAttachment() as Viewer;
+    // Le client envoie sa position au plus toutes les 5 s : au-delà d'un message par
+    // seconde, on ignore sans toucher au stockage (un script ne peut pas inonder la room).
+    const now = Date.now();
+    if (now - (viewer.lastMessage ?? 0) < MIN_MESSAGE_INTERVAL_MS) return;
     const parsed = decodeClient(message);
     if (parsed._tag === "None") return;
-    const viewer = ws.deserializeAttachment() as Viewer;
-    ws.serializeAttachment({ ...viewer, time: parsed.value.time, seen: Date.now() });
-    this.broadcastPresence();
+    ws.serializeAttachment({ ...viewer, time: parsed.value.time, seen: now, lastMessage: now });
+    await this.schedulePresence();
   }
 
-  override webSocketClose(ws: WebSocket): void {
-    ws.close();
-    this.broadcastPresence(ws);
+  override async webSocketClose(ws: WebSocket, code: number): Promise<void> {
+    // Répondre au close termine la poignée de main (1005/1006 ne peuvent pas être renvoyés).
+    ws.close(code === 1005 || code === 1006 ? 1000 : code);
+    await this.schedulePresence();
   }
 
-  override webSocketError(ws: WebSocket): void {
-    this.broadcastPresence(ws);
+  override async webSocketError(): Promise<void> {
+    await this.schedulePresence();
   }
 
-  private broadcast(body: string, except?: WebSocket): void {
-    for (const ws of this.ctx.getWebSockets()) {
-      if (ws === except) continue;
-      try {
-        ws.send(body);
-      } catch {
-        // socket déjà fermé côté client : il sera écarté au prochain passage
-      }
-    }
-  }
-
-  private broadcastPresence(leaving?: WebSocket): void {
+  override alarm(): void {
     const now = Date.now();
     const viewers: Array<Omit<Viewer, "seen">> = [];
     for (const ws of this.ctx.getWebSockets()) {
-      if (ws === leaving) continue;
-      const { seen, ...viewer } = ws.deserializeAttachment() as Viewer;
-      if (now - seen > STALE_MS) {
-        ws.close(1001, "inactif");
-        continue;
-      }
+      if (ws.readyState !== WebSocket.OPEN) continue;
+      const { seen, lastMessage: _last, ...viewer } = ws.deserializeAttachment() as Viewer;
+      // Les pings répondus automatiquement comptent comme signe de vie.
+      const ping = this.ctx.getWebSocketAutoResponseTimestamp(ws)?.getTime() ?? 0;
+      if (now - Math.max(seen, ping) > STALE_MS) continue;
       viewers.push(viewer);
     }
-    this.broadcast(encodeEvent({ _tag: "Presence", viewers }), leaving);
+    this.broadcast(encodeEvent({ _tag: "Presence", viewers }));
+  }
+
+  private async schedulePresence(): Promise<void> {
+    if ((await this.ctx.storage.getAlarm()) === null) {
+      await this.ctx.storage.setAlarm(Date.now() + PRESENCE_DEBOUNCE_MS);
+    }
+  }
+
+  private broadcast(body: string): void {
+    for (const ws of this.ctx.getWebSockets()) {
+      try {
+        ws.send(body);
+      } catch {
+        // socket déjà fermé côté client : ignoré
+      }
+    }
   }
 }

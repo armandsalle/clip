@@ -7,7 +7,7 @@ catalogMode: prefer
 # Versions figées exactement : cf, le plugin Vite Cloudflare et les modules
 # "unstable" d'Effect peuvent casser en version mineure.
 catalog:
-  "@clip/web": workspace:*
+  "@cloudflare/workers-types": 5.20261012.1
   "@cloudflare/vite-plugin": 2.0.0-beta.v.1
   "@effect/sql-pg": 4.0.5
   "@effect/sql-pglite": 4.0.5
@@ -15,6 +15,9 @@ catalog:
   "@effect/vitest": 4.0.5
   "@neon/config": 1.9.2
   "@neon/env": 1.6.3
+  "@tanstack/react-form": 1.33.5
+  "@tanstack/react-query": 5.104.1
+  "@tanstack/react-router": 1.170.41
   "@types/node": ^24
   "@types/react": 19.3.0
   "@types/react-dom": 19.3.0

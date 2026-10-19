@@ -1,26 +1,29 @@
-import { DateTime, Duration, Option, Result } from "effect";
+import { DateTime, Duration, Option, Result, Schema } from "effect";
 import {
+  Expiry,
   InvalidTransition,
   OutOfRange,
+  Thumbnail,
   Video,
   VideoNotReady,
   VideoStatus,
   videoFields,
-  type Expiry,
-  type Thumbnail,
 } from "./Video.ts";
 
 // Cœur métier pur : (vidéo, événement, maintenant) -> nouvelle vidéo ou erreur.
 
-export type VideoEvent =
-  | { readonly _tag: "Uploaded" }
-  | { readonly _tag: "Encoded"; readonly duration: number }
-  | { readonly _tag: "EncodingFailed"; readonly reason: string }
-  | { readonly _tag: "Rename"; readonly title: string }
-  | { readonly _tag: "SetThumbnail"; readonly thumbnail: Thumbnail }
-  | { readonly _tag: "SetExpiry"; readonly expiry: Expiry }
-  | { readonly _tag: "Expire" }
-  | { readonly _tag: "Delete" };
+/** Événements du domaine : un Schema, car ils traversent la RPC jobs → api. */
+export const VideoEvent = Schema.TaggedUnion({
+  Uploaded: {},
+  Encoded: { duration: Schema.Finite },
+  EncodingFailed: { reason: Schema.String },
+  Rename: { title: Schema.String },
+  SetThumbnail: { thumbnail: Thumbnail },
+  SetExpiry: { expiry: Expiry },
+  Expire: {},
+  Delete: {},
+});
+export type VideoEvent = typeof VideoEvent.Type;
 
 export type VideoError = InvalidTransition | VideoNotReady | OutOfRange;
 

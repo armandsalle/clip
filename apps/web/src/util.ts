@@ -1,37 +1,3 @@
-import { useEffect, useState } from "react";
-
-// Navigation --------------------------------------------------------------------
-
-export type Route =
-  | { readonly page: "home" }
-  | { readonly page: "video"; readonly id: string }
-  | { readonly page: "coulisses"; readonly id: string };
-
-const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
-
-export const parseRoute = (path: string): Route => {
-  const coulisses = new RegExp(`^/v/(${UUID})/coulisses/?$`).exec(path);
-  if (coulisses) return { page: "coulisses", id: coulisses[1]! };
-  const video = new RegExp(`^/v/(${UUID})/?$`).exec(path);
-  if (video) return { page: "video", id: video[1]! };
-  return { page: "home" };
-};
-
-export const navigate = (to: string) => {
-  history.pushState(null, "", to);
-  dispatchEvent(new PopStateEvent("popstate"));
-};
-
-export const useRoute = (): Route => {
-  const [route, setRoute] = useState(() => parseRoute(location.pathname));
-  useEffect(() => {
-    const update = () => setRoute(parseRoute(location.pathname));
-    addEventListener("popstate", update);
-    return () => removeEventListener("popstate", update);
-  }, []);
-  return route;
-};
-
 // Stockage local (tolérant : navigation privée, stockage bloqué) ------------------
 
 const read = (key: string): string | null => {
@@ -48,6 +14,28 @@ const write = (key: string, value: string) => {
   } catch {
     // stockage indisponible : la valeur reste en mémoire pour cette page
   }
+};
+
+const remove = (key: string) => {
+  try {
+    localStorage.removeItem(key);
+  } catch {
+    // rien à effacer
+  }
+};
+
+/** Accès tolérant au localStorage : toutes les lectures et écritures de l'app passent ici. */
+export const local = { read, write, remove };
+
+/** Email de notification mémorisé : le dernier saisi, et celui de chaque vidéo déposée. */
+export const ownerEmail = {
+  last: () => read("clip:email"),
+  of: (videoId: string) => read(`clip:email:${videoId}`) ?? read("clip:email"),
+  remember: (videoId: string, email: string) => {
+    write("clip:email", email);
+    write(`clip:email:${videoId}`, email);
+  },
+  forget: (videoId: string) => remove(`clip:email:${videoId}`),
 };
 
 /**

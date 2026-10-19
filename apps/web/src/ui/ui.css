@@ -1,0 +1,475 @@
+/* Composants des Fondations Paper (préfixe c-). Valeurs reprises de get_computed_styles. */
+
+.c-mono {
+  font-family: var(--clip-font-mono);
+}
+.c-fg-3 {
+  color: var(--clip-fg-3);
+  font-size: var(--clip-text-xs);
+  line-height: 16px;
+}
+.c-dot {
+  width: 6px;
+  height: 6px;
+  flex-shrink: 0;
+  border-radius: var(--clip-radius-pill);
+  background: currentColor;
+}
+
+/* Boutons ------------------------------------------------------------------ */
+.c-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding-inline: 18px;
+  border: 1px solid transparent;
+  border-radius: var(--clip-radius-pill);
+  background: none;
+  color: var(--clip-fg);
+  font: 500 var(--clip-text-base) / 18px var(--clip-font-sans);
+  white-space: nowrap;
+  transition:
+    background 120ms,
+    border-color 120ms,
+    opacity 120ms;
+}
+.c-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--clip-fg) 24%, transparent);
+}
+.c-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.c-btn-primary {
+  background: var(--clip-button-bg);
+  color: var(--clip-button-fg);
+  font-weight: 600;
+}
+.c-btn-primary:hover:not(:disabled) {
+  background: #ffffff;
+}
+.c-btn-secondary {
+  border-color: var(--clip-border);
+}
+.c-btn-secondary:hover:not(:disabled) {
+  border-color: var(--clip-border-strong);
+}
+.c-btn-quiet {
+  padding-inline: 14px;
+  background: var(--clip-raised);
+}
+.c-btn-quiet:hover:not(:disabled) {
+  background: var(--clip-border);
+}
+.c-btn-danger {
+  height: auto;
+  padding-inline: 6px 0;
+  color: var(--clip-failed);
+  font-weight: 400;
+}
+
+/* Champs ------------------------------------------------------------------- */
+.c-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.c-field-label {
+  color: var(--clip-fg-2);
+  font-size: var(--clip-text-sm);
+  line-height: 16px;
+}
+.c-input {
+  height: 44px;
+  padding-inline: 14px;
+  border: 1px solid var(--clip-border);
+  border-radius: var(--clip-radius-md);
+  background: var(--clip-field-bg);
+  color: var(--clip-fg);
+  font: var(--clip-text-base) / 18px var(--clip-font-sans);
+  outline: none;
+}
+.c-input::placeholder {
+  color: var(--clip-fg-3);
+}
+.c-input:focus {
+  border-color: var(--clip-fg);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--clip-fg) 14%, transparent);
+}
+.c-input-error,
+.c-input-error:focus {
+  border-color: var(--clip-failed);
+  box-shadow: none;
+}
+.c-field-error,
+.c-field-hint {
+  margin: 0;
+  font-size: var(--clip-text-xs);
+  line-height: 16px;
+}
+.c-field-error {
+  color: var(--clip-failed);
+}
+.c-field-hint {
+  color: var(--clip-fg-3);
+}
+
+/* Onglets et segmented ---------------------------------------------------- */
+.c-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: var(--clip-radius-md);
+  background: var(--clip-surface);
+}
+.c-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding-inline: 12px;
+  border: 0;
+  border-radius: var(--clip-radius-sm);
+  background: none;
+  color: var(--clip-fg-2);
+  font: var(--clip-text-sm) / 16px var(--clip-font-sans);
+}
+.c-tab:hover {
+  color: var(--clip-fg);
+}
+.c-tab-active {
+  background: var(--clip-raised);
+  color: var(--clip-fg);
+  font-weight: 500;
+}
+.c-tab-count {
+  color: var(--clip-fg-3);
+  font: var(--clip-text-2xs) / 14px var(--clip-font-mono);
+}
+.c-seg {
+  display: inline-flex;
+  align-self: start;
+  padding: 3px;
+  border-radius: var(--clip-radius-pill);
+  background: var(--clip-surface);
+}
+.c-seg-item {
+  height: 28px;
+  padding-inline: 12px;
+  border: 0;
+  border-radius: var(--clip-radius-pill);
+  background: none;
+  color: var(--clip-fg-2);
+  font: var(--clip-text-sm) / 16px var(--clip-font-sans);
+}
+.c-seg-active {
+  background: var(--clip-raised);
+  color: var(--clip-fg);
+  font-weight: 500;
+}
+.c-tab:focus-visible,
+.c-seg-item:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--clip-fg) 40%, transparent);
+  outline-offset: 1px;
+}
+
+/* Badges ------------------------------------------------------------------- */
+.c-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding-inline: 7px;
+  border: 0;
+  border-radius: var(--clip-radius-xs);
+  color: var(--clip-fg);
+  font: var(--clip-text-xs) / 16px var(--clip-font-sans);
+  white-space: nowrap;
+}
+.c-badge.c-mono {
+  font-family: var(--clip-font-mono);
+}
+.c-badge-pill {
+  height: 24px;
+  padding-inline: 9px;
+  border-radius: var(--clip-radius-pill);
+  font-weight: 500;
+}
+.c-tone-running {
+  background: color-mix(in srgb, var(--clip-running) 16%, transparent);
+  color: var(--clip-running);
+}
+.c-tone-retry {
+  background: color-mix(in srgb, var(--clip-retry) 16%, transparent);
+  color: var(--clip-retry);
+}
+.c-tone-success {
+  background: color-mix(in srgb, var(--clip-success) 14%, transparent);
+  color: var(--clip-success);
+}
+.c-tone-failed {
+  background: color-mix(in srgb, var(--clip-failed) 14%, transparent);
+  color: var(--clip-failed);
+}
+.c-badge-overlay {
+  background: var(--clip-overlay);
+  color: #ffffff;
+  font-weight: 500;
+}
+.c-badge-raised {
+  background: var(--clip-raised);
+}
+.c-timecode {
+  gap: 4px;
+  cursor: pointer;
+}
+.c-timecode:hover {
+  background: var(--clip-border);
+}
+.c-badge-line {
+  border: 1px solid var(--clip-border);
+  color: var(--clip-fg-2);
+  font-weight: 400;
+}
+.c-badge-dashed {
+  border: 1px dashed var(--clip-disabled);
+  color: var(--clip-fg-3);
+  font-size: var(--clip-text-2xs);
+  font-weight: 400;
+  line-height: 14px;
+}
+
+/* Carte vidéo -------------------------------------------------------------- */
+.c-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.c-card-thumb {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: clip;
+  border-radius: var(--clip-radius-md);
+  background: linear-gradient(
+    in oklab 135deg,
+    oklab(25.5% -0.002 -0.04) 0%,
+    oklab(18.6% 0.0006 -0.029) 60%,
+    oklab(19.9% 0.016 -0.034) 100%
+  );
+}
+.c-card-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.c-card-status {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding-inline: 8px;
+  border-radius: var(--clip-radius-pill);
+  background: #00000099;
+  font: 500 var(--clip-text-2xs) / 14px var(--clip-font-sans);
+}
+.c-card-status.c-tone-running,
+.c-card-status.c-tone-retry,
+.c-card-status.c-tone-failed {
+  background: #00000099;
+  color: #ffffff;
+}
+.c-card-status.c-tone-running .c-dot {
+  background: var(--clip-running);
+}
+.c-card-status.c-tone-failed .c-dot {
+  background: var(--clip-failed);
+}
+/* HD : pas de point, texte ambré (design « HD en cours · 64 % »). */
+.c-card-status.c-tone-retry {
+  color: var(--clip-retry);
+}
+.c-card-status.c-tone-retry .c-dot {
+  display: none;
+}
+.c-card-duration {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+}
+.c-card-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.c-card-title {
+  margin: 0;
+  overflow: hidden;
+  color: var(--clip-fg);
+  font: 600 var(--clip-text-md) / 18px var(--clip-font-sans);
+  letter-spacing: var(--clip-tracking-tight);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.c-card-meta {
+  margin: 0;
+  color: var(--clip-fg-2);
+  font-size: var(--clip-text-sm);
+  line-height: 16px;
+}
+
+/* Commentaire et transcription -------------------------------------------- */
+.c-comment,
+.c-segment {
+  display: flex;
+  gap: 12px;
+}
+.c-avatar {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: var(--clip-radius-pill);
+}
+.c-comment-bar {
+  width: 3px;
+  flex-shrink: 0;
+  border-radius: 2px;
+}
+.c-comment-main,
+.c-segment-main {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.c-comment-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.c-comment-author {
+  color: var(--clip-fg);
+  font: 600 var(--clip-text-sm) / 16px var(--clip-font-sans);
+}
+.c-comment-ago {
+  color: var(--clip-fg-3);
+  font-size: var(--clip-text-xs);
+  line-height: 16px;
+}
+.c-comment-body {
+  margin: 0;
+  color: var(--clip-fg);
+  font: var(--clip-text-base) / 21px var(--clip-font-sans);
+  overflow-wrap: anywhere;
+}
+.c-segment {
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: var(--clip-radius-sm);
+  background: none;
+  text-align: left;
+}
+.c-segment:hover {
+  background: var(--clip-surface);
+}
+.c-segment-current {
+  background: var(--clip-raised);
+}
+
+/* Barre du haut -------------------------------------------------------------- */
+.c-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 64px;
+  padding-inline: 40px;
+  border-bottom: 1px solid var(--clip-border);
+}
+.c-nav-links {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+}
+.c-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--clip-fg);
+  font: 600 var(--clip-text-lg) / 22px var(--clip-font-sans);
+  letter-spacing: var(--clip-tracking-title);
+  text-decoration: none;
+}
+.c-brand-mark {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--clip-radius-xs);
+  background: var(--clip-fg);
+}
+.c-nav-link {
+  color: var(--clip-fg-2);
+  font: var(--clip-text-base) / 18px var(--clip-font-sans);
+  text-decoration: none;
+}
+.c-nav-link:hover,
+.c-nav-link-active {
+  color: var(--clip-fg);
+}
+.c-nav-link-active {
+  font-weight: 500;
+}
+a.c-btn {
+  text-decoration: none;
+}
+.c-nav-cta {
+  height: 36px;
+  padding-inline: 16px;
+}
+@media (max-width: 640px) {
+  .c-nav {
+    height: 64px;
+    padding-inline: 16px;
+    border-bottom: 0;
+  }
+  .c-nav-link {
+    display: none;
+  }
+}
+
+/* Squelettes et touches ---------------------------------------------------- */
+.c-skeleton {
+  border-radius: var(--clip-radius-md);
+  background: var(--clip-surface);
+  animation: c-pulse 1.8s ease-in-out infinite;
+}
+@keyframes c-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .c-skeleton {
+    animation: none;
+  }
+}
+kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding-inline: 5px;
+  border: 1px solid var(--clip-border);
+  border-radius: 5px;
+  color: var(--clip-fg-2);
+  font: var(--clip-text-2xs) / 14px var(--clip-font-mono);
+}

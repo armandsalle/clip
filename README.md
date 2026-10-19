@@ -4,10 +4,12 @@ Dépose une vidéo, reçois un lien. Transcription, résumé, chapitres, miniatu
 
 - Produit : [docs/PRODUCT.md](docs/PRODUCT.md)
 - Architecture : [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- Contribuer : [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ```bash
 vp install
-vp check
-vp run -r test
-CLIP_CONTAINERS=0 vp run dev
+cp .env.example .env.local
+vp run db:up
+vp run dev
+vp run db:seed
 ```

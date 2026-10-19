@@ -1,69 +1,36 @@
 import { assert, layer } from "@effect/vitest";
-import { DateTime, Effect, Fiber, Layer } from "effect";
+import { Effect, Exit, Layer, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { HttpServer } from "effect/http";
 import { HttpApiTest } from "effect/http-api";
-import { ClipApi } from "@clip/contract";
+import { ClipApi, CreateVideo } from "@clip/contract";
+import type { VideoId } from "@clip/domain";
+import { queued, TestPlatform } from "@clip/testing";
 import { VideosHandlers } from "../src/http.ts";
-import * as Pipeline from "../src/pipeline.ts";
-import { captionsUploaded, queued, sentEmails, TestPlatform } from "./support/layers.ts";
+import { Videos } from "../src/Videos.ts";
 
 const makeClient = HttpApiTest.groups(ClipApi, ["videos"]);
 
-/** L'IA factice simule une latence : on avance l'horloge de test au lieu d'attendre. */
-const withClock = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-  Effect.gen(function* () {
-    const fiber = yield* Effect.forkChild(effect);
-    yield* TestClock.adjust("5 seconds");
-    return yield* Fiber.join(fiber);
-  });
+/** Ce que fait jobs quand Stream a fini d'encoder (via la RPC `ApplyVideoEvent`). */
+const encoded = (id: VideoId) =>
+  Videos.use((v) => v.apply(id, [{ _tag: "Encoded", duration: 120 }]));
 
-// Tout le pipeline HTTP (encodage, routage, décodage) et la logique du Workflow,
-// sans Worker ni base : les bindings sont remplacés par des Layers en mémoire.
+// Toute l'API HTTP (encodage, routage, décodage), sans Worker ni base : les bindings
+// sont remplacés par des Layers en mémoire. Le pipeline est testé dans apps/jobs.
 layer(
   VideosHandlers.pipe(
+    Layer.provideMerge(Videos.layer),
     Layer.provideMerge(TestPlatform),
     Layer.provideMerge(HttpServer.layerServices),
   ),
 )("Clip", (it) => {
-  it.effect("upload → encodage → enrichissements → vue complète", () =>
-    Effect.gen(function* () {
-      const client = yield* makeClient;
-      const created = yield* client.videos.create({
-        payload: { email: null, expiry: "7d", size: 1_000_000 },
-      });
-      assert.strictEqual(created.video.status._tag, "Uploading");
-
-      const id = created.video.id;
-      assert.strictEqual(yield* Pipeline.checkEncoding(id), "ready");
-      yield* withClock(
-        Effect.all([Pipeline.thumbnail(id), Pipeline.suggestions(id), Pipeline.transcript(id)]),
-      );
-      yield* withClock(Effect.all([Pipeline.summary(id), Pipeline.captions(id)]));
-
-      const view = yield* client.videos.get({ params: { id } });
-      assert.strictEqual(view.video.status._tag, "Ready");
-      assert.strictEqual(view.video.title, "Démo Clip");
-      assert.isTrue(view.transcript.length > 0);
-      assert.strictEqual(view.language, "fr");
-      assert.deepStrictEqual([...new Set(view.transcript.map((s) => s.speaker))].sort(), [0, 1]);
-      const vtt = captionsUploaded.at(-1);
-      assert.strictEqual(vtt?.language, "fr");
-      assert.isTrue(vtt?.vtt.startsWith("WEBVTT") && vtt.vtt.includes("<v Intervenant 2>"));
-      assert.strictEqual(view.enrichments.captions._tag, "Done");
-      assert.deepStrictEqual(view.thumbnailSuggestions, [24, 60, 96]);
-      assert.strictEqual(view.enrichments.summary._tag, "Done");
-      assert.strictEqual(view.enrichments.storyboard._tag, "Pending");
-    }),
-  );
-
   it.effect("commentaires horodatés, bornés par la durée", () =>
     Effect.gen(function* () {
       const client = yield* makeClient;
       const { video } = yield* client.videos.create({
-        payload: { email: null, expiry: "never", size: 1_000_000 },
+        payload: { email: "owner@example.com", expiry: "never", size: 1_000_000 },
       });
-      yield* Pipeline.checkEncoding(video.id);
+      yield* encoded(video.id);
       yield* client.videos.comment({
         params: { id: video.id },
         payload: { author: "Alice", body: "Joli", time: 42, parentId: null },
@@ -87,9 +54,9 @@ layer(
     Effect.gen(function* () {
       const client = yield* makeClient;
       const created = yield* client.videos.create({
-        payload: { email: null, expiry: "7d", size: 1_000_000 },
+        payload: { email: "owner@example.com", expiry: "7d", size: 1_000_000 },
       });
-      yield* Pipeline.checkEncoding(created.video.id);
+      yield* encoded(created.video.id);
       const denied = yield* client.videos
         .update({
           params: { id: created.video.id },
@@ -108,95 +75,103 @@ layer(
     }),
   );
 
-  it.effect("l'encodage a une vraie durée, et la HD publie son avancement", () =>
+  it.effect("un commentaire part dans la file des notifications", () =>
     Effect.gen(function* () {
       const client = yield* makeClient;
       const { video } = yield* client.videos.create({
-        payload: { email: null, expiry: "never", size: 1_000_000 },
+        payload: { email: "owner@example.com", expiry: "7d", size: 1_000_000 },
       });
-      yield* TestClock.adjust("42 seconds");
-      yield* Pipeline.checkEncoding(video.id);
-      const startedAt = (yield* DateTime.now).epochMilliseconds;
-      assert.strictEqual(yield* Pipeline.checkHd(video.id, startedAt), "waiting");
-      const view = yield* client.videos.get({ params: { id: video.id } });
-      const hd = view.enrichments.hd;
-      assert.isTrue(hd._tag === "Running" && hd.progress === 94 && hd.startedAt !== undefined);
+      yield* encoded(video.id);
+      const before = queued.length;
+      const comment = yield* client.videos.comment({
+        params: { id: video.id },
+        payload: { author: "Alice", body: "Bravo", time: 5, parentId: null },
+      });
+      assert.deepStrictEqual(queued.slice(before), [{ videoId: video.id, commentId: comment.id }]);
     }),
   );
 
-  it.effect("emails : vidéo prête, commentaires regroupés, réponse par email", () =>
+  it.effect("supprimée, une vidéo n'accepte plus de changement", () =>
     Effect.gen(function* () {
       const client = yield* makeClient;
       const created = yield* client.videos.create({
         payload: { email: "owner@example.com", expiry: "7d", size: 1_000_000 },
       });
-      const id = created.video.id;
-      yield* Pipeline.checkEncoding(id);
-
-      // Vidéo prête
-      yield* Pipeline.notify(id);
-      const ready = sentEmails.at(-1);
-      assert.strictEqual(ready?.to, "owner@example.com");
-      assert.isTrue(ready?.subject.startsWith("Votre vidéo est prête"));
-
-      // Deux commentaires → deux notifications enfilées → un seul email
-      const before = queued.length;
-      for (const body of ["Premier", "Second"]) {
-        yield* client.videos.comment({
-          params: { id },
-          payload: { author: "Alice", body, time: 10, parentId: null },
-        });
-      }
-      const batch = queued.slice(before);
-      assert.strictEqual(batch.length, 2);
-      const sentBefore = sentEmails.length;
-      yield* Pipeline.notifyComments(batch);
-      assert.strictEqual(sentEmails.length, sentBefore + 1);
-      const mail = sentEmails.at(-1)!;
-      assert.isTrue(mail.subject.startsWith("2 nouveaux commentaires"));
-      const replyTo = mail.replyTo!;
-      assert.isTrue(/^reply\+[a-z2-7]{16}@clip\.test$/.test(replyTo));
-
-      // Réponse depuis une autre adresse : refusée
-      const refused = yield* Pipeline.replyByEmail({
-        to: replyTo,
-        from: "pirate@example.com",
-        text: "Coucou",
-      }).pipe(Effect.flip);
-      assert.strictEqual(refused.reason, "expéditeur non autorisé");
-
-      // Jeton inconnu : refusé
-      const unknown = yield* Pipeline.replyByEmail({
-        to: "reply+aaaaaaaaaaaaaaaa@clip.test",
-        from: "owner@example.com",
-        text: "x",
-      }).pipe(Effect.flip);
-      assert.strictEqual(unknown.reason, "adresse inconnue");
-
-      // Réponse du propriétaire : publiée sous le dernier commentaire
-      const reply = yield* Pipeline.replyByEmail({
-        to: replyTo,
-        from: "Owner@Example.com",
-        text: "Merci !\n\nLe 18 oct., Clip a écrit :\n> Second",
+      const headers = { "x-clip-admin": created.adminKey };
+      yield* encoded(created.video.id);
+      yield* client.videos.comment({
+        params: { id: created.video.id },
+        payload: { author: "Alice", body: "Avant suppression", time: 1, parentId: null },
       });
-      assert.strictEqual(reply.body, "Merci !");
-      assert.strictEqual(reply.via, "email");
-      const all = yield* client.videos.comments({ params: { id } });
-      const parent = all.find((c) => c.body === "Second")!;
-      assert.strictEqual(reply.parentId, parent.id);
+      const removed = yield* client.videos.remove({ params: { id: created.video.id }, headers });
+      assert.strictEqual(removed.status._tag, "Deleted");
+      const error = yield* Videos.use((v) =>
+        v.apply(created.video.id, [{ _tag: "Rename", title: "x" }]),
+      ).pipe(Effect.flip);
+      assert.strictEqual(error._tag, "InvalidTransition");
+      // Plus rien du contenu n'est servi : ni texte, ni lecture, ni commentaires.
+      const view = yield* client.videos.get({ params: { id: created.video.id } });
+      assert.strictEqual(view.video.status._tag, "Deleted");
+      assert.isNull(view.playback);
+      assert.isNull(view.summary);
+      assert.deepStrictEqual(view.transcript, []);
+      const list = yield* client.videos.comments({ params: { id: created.video.id } });
+      assert.deepStrictEqual(list, []);
     }),
   );
 
-  it.effect("pas d'email « vidéo prête » sans adresse", () =>
+  it.effect("la galerie liste les vidéos visibles, plus récentes d'abord", () =>
     Effect.gen(function* () {
       const client = yield* makeClient;
-      const { video } = yield* client.videos.create({
-        payload: { email: null, expiry: "7d", size: 1_000_000 },
+      const before = yield* client.videos.list({ query: {} });
+      // Les autres tests créent leurs vidéos à l'instant 0 de l'horloge de test.
+      yield* TestClock.adjust("1 hour");
+      const a = yield* client.videos.create({
+        payload: { email: "owner@example.com", expiry: "7d", size: 1_000_000 },
       });
-      yield* Pipeline.checkEncoding(video.id);
-      yield* Pipeline.notify(video.id);
-      const view = yield* client.videos.get({ params: { id: video.id } });
-      assert.strictEqual(view.enrichments.notify._tag, "Disabled");
+      yield* TestClock.adjust("1 second");
+      const b = yield* client.videos.create({
+        payload: { email: "owner@example.com", expiry: "7d", size: 1_000_000 },
+      });
+      yield* client.videos.update({
+        params: { id: b.video.id },
+        headers: { "x-clip-admin": b.adminKey },
+        payload: { title: "Revue de sprint" },
+      });
+      const page = yield* client.videos.list({ query: {} });
+      assert.strictEqual(page.total, before.total + 2);
+      assert.deepStrictEqual(
+        page.items.slice(0, 2).map((i) => i.video.id),
+        [b.video.id, a.video.id],
+      );
+      assert.strictEqual(page.items[0]!.enrichments.transcript._tag, "Pending");
+      const found = yield* client.videos.list({ query: { q: "sprint" } });
+      assert.deepStrictEqual(
+        found.items.map((i) => i.video.id),
+        [b.video.id],
+      );
+      yield* client.videos.remove({
+        params: { id: a.video.id },
+        headers: { "x-clip-admin": a.adminKey },
+      });
+      const after = yield* client.videos.list({ query: {} });
+      assert.isFalse(after.items.some((i) => i.video.id === a.video.id));
+    }),
+  );
+
+  it.effect("le dépôt exige une adresse email valide", () =>
+    Effect.gen(function* () {
+      const client = yield* makeClient;
+      for (const email of ["", "lea@studio", "pas une adresse"]) {
+        const error = yield* client.videos
+          .create({ payload: { email, expiry: "7d", size: 1_000_000 } })
+          .pipe(Effect.flip);
+        // Refusée dès l'encodage côté client ; l'API applique le même Schema en entrée.
+        assert.include(["SchemaError", "HttpApiDecodeError"], error._tag, `« ${email} » accepté`);
+        assert.isTrue(
+          Exit.isFailure(Schema.decodeExit(CreateVideo)({ email, expiry: "7d", size: 1 })),
+        );
+      }
     }),
   );
 });

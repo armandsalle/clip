@@ -36,6 +36,10 @@ Lire `docs/PRODUCT.md` (produit) et `docs/ARCHITECTURE.md` (tech) avant toute mo
 - Pas de compte : les droits d'admin passent par le secret `x-clip-admin`, stocké haché.
 - L'IA est une couche : une étape IA en échec ou coupée ne bloque jamais la lecture.
 - Versions : uniquement via le `catalog` de `pnpm-workspace.yaml`, figées exactement.
-- Pas de dépendance directe sur `vite` dans `apps/api` (sinon `cf` lance `npx vite` et contourne Vite+).
-- Commandes `cf` du Worker : tâches Vite+ (`vp run @clip/api#dev|build|deploy`), pas des scripts npm.
-- Base : Drizzle 1.0 RC (API Effect). Toute requête passe par le query builder, jamais par du SQL brut non typé. Après une modif de `src/db/schema.ts` : `pnpm exec drizzle-kit generate` dans `apps/api`. Le dépôt est testé contre PGlite (`test/support/pglite.ts`).
+- Trois Workers : `clip-web` (SPA + proxy, seul exposé), `clip-api` (API, RPC interne, VideoRoom ; seul écrivain des vidéos et commentaires), `clip-jobs` (Workflow, Queue, emails entrants, Cron). jobs écrit les enrichissements et demande tout le reste à api par la RPC (`InternalRpcs` dans `packages/contract`).
+- Réglages communs (noms par mode, ressources, remote) : `packages/config`. Chaque app a un `worker.ts` partagé entre son `cloudflare.config.ts` et le dev local.
+- Pas de dépendance directe sur `vite` dans les apps (sinon `cf` lance `npx vite` et contourne Vite+).
+- Front (`apps/web/src`) : TanStack Router (routes déclarées dans `router.tsx`), Query (`api/queries.ts`, cache patché par le WebSocket via `lib/liveCache.ts`), Form. Composants des Fondations Paper dans `ui/`, tokens dans `styles/tokens.css`, textes dans `copy.ts` (au vous), messages d'erreur uniquement via `api/errors.ts`.
+- Commandes `cf` : tâches Vite+, pas des scripts npm. Dev local : `vp run @clip/web#dev` (les trois Workers ensemble). Déploiement : `vp run @clip/<app>#build|deploy`, dans l'ordre jobs → api → web.
+- Base : Drizzle 1.0 RC (API Effect). Toute requête passe par le query builder, jamais par du SQL brut non typé. Schéma, migrations et `Store` vivent dans `packages/db` : après une modif de `src/schema.ts`, `pnpm exec drizzle-kit generate` dans `packages/db`. Le dépôt est testé contre PGlite (`packages/db/test/support/pglite.ts`).
+- Un Layer par binding dans `packages/platform` ; fakes et recorders de test partagés dans `packages/testing`.
