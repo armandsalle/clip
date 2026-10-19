@@ -107,6 +107,10 @@ export const VideoPage = ({ id }: { id: VideoId }) => {
     video.data !== undefined && !["Expired", "Deleted"].includes(video.data.video.status._tag);
   const live = useLiveVideo(id, name, alive);
   const [start] = useState(() => startPosition(id, new URLSearchParams(location.search), session));
+  // ?lecteur=natif : lecteur HLS du navigateur, pour le comparer à hls.js.
+  const [engine] = useState<"auto" | "native">(() =>
+    new URLSearchParams(location.search).get("lecteur") === "natif" ? "native" : "auto",
+  );
   const [time, setTime] = useState(start.time);
   const [tab, setTab] = useState<Tab>("comments");
   const [settings, setSettings] = useState(false);
@@ -239,6 +243,7 @@ export const VideoPage = ({ id }: { id: VideoId }) => {
               commentTimes={list.filter((c) => c.parentId === null).map((c) => c.time)}
               viewers={live.viewers.filter((v) => v.name !== name)}
               hd={live.steps.hd ?? view.enrichments.hd}
+              engine={engine}
               onTime={(t, playing) => {
                 setTime(t);
                 live.sendTime(t);

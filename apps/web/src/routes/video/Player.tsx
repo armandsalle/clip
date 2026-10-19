@@ -47,6 +47,7 @@ export const Player = ({
   commentTimes,
   viewers,
   hd,
+  engine = "auto",
   onTime,
 }: {
   ref: Ref<PlayerHandle>;
@@ -63,6 +64,8 @@ export const Player = ({
   viewers: ReadonlyArray<Viewer>;
   /** Étape `hd` : tant qu'elle tourne, la meilleure qualité n'est pas encore prête. */
   hd: EnrichmentStatus | undefined;
+  /** `native` : lecteur HLS du navigateur (comparaison) ; sinon hls.js. */
+  engine?: "auto" | "native";
   onTime: (time: number, playing: boolean) => void;
 }) => {
   const video = useRef<HTMLVideoElement>(null);
@@ -130,11 +133,15 @@ export const Player = ({
   useEffect(() => {
     const v = video.current;
     if (!v) return;
-    const native = !src.includes(".m3u8") || v.canPlayType("application/vnd.apple.mpegurl");
-    if (native) {
+    // MP4 du faux Stream local, ou lecteur natif demandé (?lecteur=natif, pour comparer).
+    if (!src.includes(".m3u8") || engine === "native") {
       v.src = src;
       return;
     }
+    // hls.js d'abord, partout où MediaSource existe (y compris ManagedMediaSource sur
+    // iOS 17.1+) : choix de la qualité, démarrage, préchargement et ABR sont à nous.
+    // Le HLS natif (Safari, et Chrome depuis peu) ne sert qu'en repli : son ABR fait
+    // varier la qualité sans contrôle possible.
     let cancelled = false;
     void import("hls.js").then(({ default: Hls }) => {
       if (cancelled) return;
@@ -146,6 +153,17 @@ export const Player = ({
         // Auto : plafond à la taille réelle du lecteur × densité de pixels.
         capLevelToPlayerSize: true,
         abrEwmaDefaultEstimate: 5_000_000,
+        // Qualité stable, comme les grands lecteurs : Stream annonce un débit de crête
+        // (BANDWIDTH) ~9× plus haut que le débit réel (AVERAGE-BANDWIDTH) ; on raisonne
+        // sur le réel, on ne monte qu'avec de la marge, on lisse l'estimation et on
+        // garde une minute d'avance pour absorber les creux sans redescendre.
+        abrMaxWithRealBitrate: true,
+        abrBandWidthFactor: 0.9,
+        abrBandWidthUpFactor: 0.6,
+        abrEwmaFastVoD: 4,
+        abrEwmaSlowVoD: 20,
+        maxBufferLength: 60,
+        maxMaxBufferLength: 120,
         // Pas de mesure de débit sur un premier segment basse qualité : on démarre au
         // niveau choisi ci-dessous, l'ABR redescend ensuite si la connexion ne suit pas.
         testBandwidth: false,
@@ -154,13 +172,16 @@ export const Player = ({
       });
       instance.subtitleDisplay = false;
       instance.on(Hls.Events.MANIFEST_PARSED, (_e, data) => {
-        // Démarrage directement dans la meilleure qualité que le lecteur peut afficher
-        // (hauteur réelle × densité de pixels), au lieu du premier niveau du manifeste.
-        const target = Math.ceil(v.clientHeight * (window.devicePixelRatio || 1));
+        // Démarrage directement dans la qualité que garderait `capLevelToPlayerSize` : la
+        // plus petite rendition au moins aussi grande que le lecteur (× densité de
+        // pixels), sinon la plus haute. Le premier segment n'est chargé qu'une fois.
+        const dpr = window.devicePixelRatio || 1;
+        const needW = (v.clientWidth || 1280) * dpr;
+        const needH = (v.clientHeight || 720) * dpr;
         const ranked = data.levels
-          .map((l, index) => ({ index, height: l.height }))
+          .map((l, index) => ({ index, width: l.width, height: l.height }))
           .sort((a, b) => a.height - b.height);
-        const start = ranked.findLast((l) => l.height <= target) ?? ranked[0];
+        const start = ranked.find((l) => l.width >= needW || l.height >= needH) ?? ranked.at(-1);
         if (start) instance.startLevel = start.index;
         setLevels(
           data.levels
@@ -183,7 +204,7 @@ export const Player = ({
       hls.current?.destroy();
       hls.current = null;
     };
-  }, [src, startAt]);
+  }, [src, startAt, engine]);
 
   // Sous-titres : piste <track> du Worker, affichée ou masquée, choix mémorisé.
   useEffect(() => {
