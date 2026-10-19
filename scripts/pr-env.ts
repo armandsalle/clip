@@ -48,14 +48,27 @@ const baseEnv = (): NodeJS.ProcessEnv => ({
 const cf = (
   args: ReadonlyArray<string>,
   options: { app?: string; env?: NodeJS.ProcessEnv; inherit?: boolean } = {},
-): string =>
-  execFileSync("vp", ["exec", "cf", ...args], {
-    cwd: `${root}apps/${options.app ?? "api"}`,
-    env: { ...baseEnv(), ...options.env },
-    encoding: "utf8",
-    stdio: options.inherit ? "inherit" : ["ignore", "pipe", "inherit"],
-    maxBuffer: 64 * 1024 * 1024,
-  }) ?? "";
+): string => {
+  try {
+    return (
+      execFileSync("vp", ["exec", "cf", ...args], {
+        cwd: `${root}apps/${options.app ?? "api"}`,
+        env: { ...baseEnv(), ...options.env },
+        encoding: "utf8",
+        stdio: options.inherit ? "inherit" : ["ignore", "pipe", "pipe"],
+        maxBuffer: 64 * 1024 * 1024,
+      }) ?? ""
+    );
+  } catch (error) {
+    // Message d'erreur de l'API (stderr) dans l'exception : `attempt` le lit.
+    const { stdout, stderr } = error as { stdout?: unknown; stderr?: unknown };
+    const output = [stdout, stderr]
+      .map((o) => String(o ?? ""))
+      .join("\n")
+      .trim();
+    throw new Error(`cf ${args.slice(0, 3).join(" ")} : ${output}`, { cause: error });
+  }
+};
 
 /** Sortie JSON d'une commande `cf` (les avertissements éventuels précèdent le JSON). */
 const cfJson = <A>(args: ReadonlyArray<string>): A => {
@@ -74,11 +87,23 @@ const workerExists = (name: string) => {
 };
 
 /** Une commande dont l'échec veut seulement dire « déjà absent ». */
+const failures: Array<string> = [];
+
+/**
+ * Étape de suppression : « introuvable » veut dire déjà supprimé ; toute autre erreur
+ * est notée, le nettoyage continue, et `pr:down` échoue à la fin.
+ */
 const attempt = (label: string, f: () => void) => {
   try {
     f();
-  } catch {
-    console.log(`  (${label} : absent ou déjà supprimé)`);
+  } catch (error) {
+    const message = String((error as Error).message ?? error);
+    if (/not found|does not exist|\b(10007|10006|10013)\b|404 Not Found/i.test(message)) {
+      console.log(`  (${label} : absent ou déjà supprimé)`);
+    } else {
+      failures.push(label);
+      console.error(`  échec (${label}) : ${message}`);
+    }
   }
 };
 
@@ -213,7 +238,7 @@ const up = async () => {
       return out;
     } catch (error) {
       // Sortie capturée (pour l'URL workers.dev) : on la montre avant d'échouer.
-      console.log(String((error as { stdout?: unknown }).stdout ?? ""));
+      console.log(String((error as Error).message));
       throw error;
     }
   };
@@ -272,29 +297,30 @@ const deleteStreamVideos = () => {
 
 const down = async () => {
   step(`Vidéos Stream (créateur ${streamCreator(mode)})`);
-  // Un échec ici (permission Stream du token…) n'empêche pas le reste du nettoyage.
-  let streamFailed = false;
-  try {
-    deleteStreamVideos();
-  } catch (error) {
-    streamFailed = true;
-    console.error(`  échec : ${String(error)}`);
-  }
+  attempt("vidéos Stream", deleteStreamVideos);
 
   // web → api → jobs : chacun référence le suivant (service bindings, Workflow, DO).
-  for (const app of ["web", "api", "jobs"] as const) {
+  // La Queue part avant jobs : Cloudflare refuse de supprimer un consommateur (10064).
+  for (const app of ["web", "api"] as const) {
     step(`Suppression de ${names.workers[app]}`);
     attempt(names.workers[app], () =>
       cf(["workers", "delete", names.workers[app], "--force", "--delete-with-references"]),
     );
   }
 
+  step(`Queue ${names.notifications}`);
+  attempt(names.notifications, () => {
+    const queue = findQueue();
+    if (queue) cf(["queues", "delete", queue.queue_id, "--force"]);
+  });
+
+  step(`Suppression de ${names.workers.jobs}`);
+  attempt(names.workers.jobs, () =>
+    cf(["workers", "delete", names.workers.jobs, "--force", "--delete-with-references"]),
+  );
+
   step(`Workflow ${names.pipeline}`);
   attempt(names.pipeline, () => cf(["workflows", "delete", names.pipeline, "--force"]));
-
-  step(`Queue ${names.notifications}`);
-  const queue = findQueue();
-  if (queue) cf(["queues", "delete", queue.queue_id, "--force"]);
 
   step(`Bucket R2 ${names.media}`);
   attempt(names.media, () => {
@@ -310,8 +336,8 @@ const down = async () => {
   const branch = await findBranch(mode);
   if (branch) await deleteBranch(branch);
 
-  if (streamFailed) {
-    throw new Error(`vidéos Stream ${streamCreator(mode)} non supprimées (voir plus haut)`);
+  if (failures.length > 0) {
+    throw new Error(`nettoyage incomplet : ${failures.join(", ")} (voir plus haut)`);
   }
   console.log(`\n✓ environnement ${mode} supprimé`);
 };
