@@ -116,6 +116,9 @@ export const VideoPage = ({ id }: { id: VideoId }) => {
   const commentBox = useRef<CommentsHandle>(null);
   const lastSaved = useRef(0);
 
+  // hls.js se télécharge pendant que la vue se charge, plutôt qu'après.
+  useEffect(() => void import("hls.js"), []);
+
   // Lien de partage ?t= : lu une fois, puis retiré de la barre d'adresse.
   useEffect(() => {
     if (!start.shareParam) return;

@@ -172,6 +172,18 @@
   transform: translateX(-50%);
   pointer-events: none;
 }
+.p-hover {
+  position: absolute;
+  bottom: 22px;
+  padding: 3px 7px;
+  border-radius: var(--clip-radius-xs);
+  background: #000000c0;
+  color: #fff;
+  font: var(--clip-text-xs) / 16px var(--clip-font-mono);
+  transform: translateX(-50%);
+  pointer-events: none;
+  white-space: nowrap;
+}
 .p-marker {
   position: absolute;
   top: -8px;

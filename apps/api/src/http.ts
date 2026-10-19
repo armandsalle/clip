@@ -47,6 +47,17 @@ const thumbnailUrl = (video: Video, base: string) =>
     Custom: ({ key }) => `/media/${key}`,
   });
 
+/**
+ * URL de lecture enregistrées. Pour les vidéos traitées avant l'ajout de `hls`, le
+ * manifeste se déduit de la miniature (format d'URL documenté de Stream :
+ * `<base>/<uid>/thumbnails/thumbnail.jpg` → `<base>/<uid>/manifest/video.m3u8`).
+ */
+const playbackOf = (saved: typeof ThumbnailResult.Type) => {
+  const hls =
+    saved.hls ?? saved.url.replace(/\/thumbnails\/thumbnail\.jpg$/, "/manifest/video.m3u8");
+  return hls.endsWith(".m3u8") ? Option.some({ hls, thumbnail: saved.url }) : Option.none();
+};
+
 const GALLERY_PAGE_SIZE = 12;
 const thumbnailOf = decodeResult(ThumbnailResult);
 
@@ -85,13 +96,20 @@ export const VideosHandlers = HttpApiBuilder.group(
     const limits = yield* RateLimits;
 
     const view = Effect.fn("Videos.view")(function* (id: VideoId) {
-      const video = yield* store.getVideo(id);
-      const records = yield* store.enrichments(id);
+      // Deux connexions Hyperdrive en parallèle plutôt qu'à la suite.
+      const [video, records] = yield* Effect.all([store.getVideo(id), store.enrichments(id)], {
+        concurrency: 2,
+      });
       const byKind = new Map(records.map((r) => [r.kind, r]));
+      // Lecture : URL enregistrées par l'étape `thumbnail` ; sinon (juste après
+      // l'encodage, anciennes vidéos), demandées à Stream.
+      const saved = Option.flatMap(thumbnailOf(byKind.get("thumbnail")?.result), playbackOf);
       const details =
-        video.status._tag === "Ready"
-          ? Option.some(yield* stream.details(video.streamUid))
-          : Option.none();
+        video.status._tag !== "Ready"
+          ? Option.none()
+          : Option.isSome(saved)
+            ? saved
+            : Option.some(yield* stream.details(video.streamUid));
       const summary = summaryOf(byKind.get("summary")?.result);
       const stored = transcriptOf(byKind.get("transcript")?.result);
       return new VideoView({

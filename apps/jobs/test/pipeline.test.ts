@@ -187,7 +187,15 @@ layer(ApiTest.pipe(Layer.provideMerge(TestPlatform), Layer.provideMerge(HttpServ
         const stored = (yield* Store.use((st) => st.enrichments(video.id))).find(
           (e) => e.kind === "thumbnail",
         );
-        assert.deepStrictEqual(stored?.result, { url: "https://thumb.test" });
+        assert.deepStrictEqual(stored?.result, {
+          url: "https://thumb.test",
+          hls: "https://hls.test",
+        });
+        const view = yield* client.videos.get({ params: { id: video.id } });
+        assert.deepStrictEqual(view.playback, {
+          hls: "https://hls.test",
+          thumbnail: "https://thumb.test",
+        });
         const page = yield* client.videos.list({ query: {} });
         const card = page.items.find((i) => i.video.id === video.id);
         assert.strictEqual(card?.thumbnail, "https://thumb.test");

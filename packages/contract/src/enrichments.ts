@@ -24,8 +24,15 @@ export const SummaryResult = Schema.Struct({
   chapters: Schema.Array(Chapter),
 });
 
-/** Résultat de l'étape `thumbnail` : URL de base de la miniature Stream. */
-export const ThumbnailResult = Schema.Struct({ url: Schema.String });
+/**
+ * Résultat de l'étape `thumbnail` : URL de base de la miniature Stream et manifeste
+ * HLS. Enregistrés une fois : la page vidéo et la galerie n'appellent plus Stream.
+ */
+export const ThumbnailResult = Schema.Struct({
+  url: Schema.String,
+  /** Absent des vidéos traitées avant son ajout. */
+  hls: Schema.optionalKey(Schema.String),
+});
 
 export const SuggestionsResult = Schema.Struct({ times: Schema.Array(Schema.Finite) });
 

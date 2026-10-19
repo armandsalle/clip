@@ -1,5 +1,7 @@
 import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { preconnect } from "react-dom";
+import type Hls from "hls.js";
+import { prefetch, segmentsAt } from "../../lib/prefetch.ts";
 import type { EnrichmentStatus } from "@clip/domain";
 import type { Viewer } from "../../live.ts";
 import { formatTime, presenceColor } from "../../util.ts";
@@ -20,15 +22,6 @@ export interface PlayerHandle {
 interface Level {
   readonly index: number;
   readonly height: number;
-}
-
-/** Contrôle hls.js minimal dont le lecteur a besoin. */
-interface HlsLike {
-  levels: ReadonlyArray<{ height: number }>;
-  currentLevel: number;
-  nextLevel: number;
-  autoLevelEnabled: boolean;
-  destroy(): void;
 }
 
 const CAPTIONS_KEY = "clip:cc";
@@ -74,7 +67,26 @@ export const Player = ({
 }) => {
   const video = useRef<HTMLVideoElement>(null);
   const box = useRef<HTMLDivElement>(null);
-  const hls = useRef<HlsLike | null>(null);
+  const hls = useRef<Hls | null>(null);
+  /** Lecteur prêt pour le préchargement (playlists vidéo et audio connues). */
+  const [warm, setWarm] = useState(false);
+  const [hover, setHover] = useState<number | null>(null);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  /**
+   * Saut : on coupe d'abord les téléchargements en cours (segments de l'ancienne
+   * position, qui retardaient le saut de ~0,7 s), puis on repart de la cible.
+   */
+  const jumpTo = (t: number) => {
+    const v = video.current;
+    if (!v) return;
+    const instance = hls.current;
+    setTime(t);
+    setLoading(true);
+    instance?.stopLoad();
+    v.currentTime = t;
+    instance?.startLoad(t);
+  };
   const [time, setTime] = useState(startAt);
   const [playing, setPlaying] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -95,19 +107,12 @@ export const Player = ({
       if (v) void (v.paused ? v.play() : v.pause());
     },
     seek: (t, play = true) => {
-      const v = video.current;
-      if (!v) return;
-      setTime(t);
-      setLoading(true);
-      v.currentTime = t;
-      if (play) void v.play();
+      jumpTo(t);
+      if (play) void video.current?.play();
     },
     skip: (delta) => {
       const v = video.current;
-      if (!v) return;
-      const t = Math.min(duration, Math.max(0, v.currentTime + delta));
-      setTime(t);
-      v.currentTime = t;
+      if (v) jumpTo(Math.min(duration, Math.max(0, v.currentTime + delta)));
     },
     toggleCaptions: () => setCaptionsOn((on) => !on),
     fullscreen: () =>
@@ -167,6 +172,8 @@ export const Player = ({
       instance.on(Hls.Events.LEVEL_SWITCHED, (_e, data) =>
         setRendition(instance.levels[data.level]?.height ?? null),
       );
+      // Playlists vidéo et audio chargées : on peut précharger chapitres et commentaires.
+      instance.on(Hls.Events.FRAG_BUFFERED, () => setWarm(true));
       instance.loadSource(src);
       instance.attachMedia(v);
       hls.current = instance;
@@ -207,15 +214,34 @@ export const Player = ({
     setMenu(false);
   };
 
-  const seekAt = (clientX: number, track: HTMLElement) => {
+  const timeAt = (clientX: number, track: HTMLElement) => {
     const rect = track.getBoundingClientRect();
-    const t = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width)) * duration;
-    const v = video.current;
-    if (!v) return;
-    setTime(t);
-    setLoading(true);
-    v.currentTime = t;
+    return Math.min(1, Math.max(0, (clientX - rect.left) / rect.width)) * duration;
   };
+
+  // Survol de la timeline : les segments sous le curseur sont préchargés (après une
+  // courte pause du pointeur), le clic qui suit tombe dans le cache.
+  const onHover = (clientX: number, track: HTMLElement) => {
+    const t = timeAt(clientX, track);
+    setHover(t);
+    clearTimeout(hoverTimer.current);
+    hoverTimer.current = setTimeout(() => {
+      if (hls.current) prefetch(segmentsAt(hls.current, t));
+    }, 120);
+  };
+
+  // Chapitres et commentaires : les instants où l'on saute le plus, préchargés une fois
+  // la lecture lancée (quelques segments, en basse priorité).
+  useEffect(() => {
+    const instance = hls.current;
+    if (!warm || !instance) return;
+    const timer = setTimeout(() => {
+      const targets = [...chapters.map((c) => c.time), ...commentTimes].slice(0, 12);
+      // Un segment par instant (vidéo et audio) : de quoi démarrer tout de suite.
+      for (const t of targets) prefetch(segmentsAt(instance, t, 1));
+    }, 1500);
+    return () => clearTimeout(timer);
+  }, [warm, chapters, commentTimes]);
 
   const pct = (t: number) => `${Math.min(100, Math.max(0, (t / duration) * 100))}%`;
   const segments =
@@ -360,7 +386,12 @@ export const Player = ({
           aria-valuemax={Math.round(duration)}
           aria-valuenow={Math.round(time)}
           aria-valuetext={`${formatTime(time)} sur ${formatTime(duration)}`}
-          onPointerDown={(e) => seekAt(e.clientX, e.currentTarget)}
+          onPointerDown={(e) => jumpTo(timeAt(e.clientX, e.currentTarget))}
+          onPointerMove={(e) => onHover(e.clientX, e.currentTarget)}
+          onPointerLeave={() => {
+            clearTimeout(hoverTimer.current);
+            setHover(null);
+          }}
           onKeyDown={(e) => {
             if (e.key === "ArrowLeft" || e.key === "ArrowRight") e.stopPropagation();
           }}
@@ -389,6 +420,11 @@ export const Player = ({
             />
           ))}
           <span className="p-thumb" style={{ left: pct(time) }} aria-hidden />
+          {hover !== null && (
+            <span className="p-hover" style={{ left: pct(hover) }} aria-hidden>
+              {formatTime(hover)}
+            </span>
+          )}
         </div>
         <div className="p-row">
           <div className="p-group">
