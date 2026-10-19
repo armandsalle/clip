@@ -11,7 +11,6 @@ export * from "./Mailer.ts";
 export * from "./Notifications.ts";
 export * from "./Pipeline.ts";
 export * from "./RateLimits.ts";
-export * from "./Telemetry.ts";
 export * from "./Runtime.ts";
 export * from "./Stream.ts";
 export * from "./webhook.ts";
