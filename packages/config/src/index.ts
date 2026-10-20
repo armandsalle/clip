@@ -167,7 +167,10 @@ export const settings = (mode: string | undefined): Settings => {
   const preview = isPreviewMode(m);
   const deployed = preview || m === STAGING;
   const n = resourceNames(m);
-  const url = databaseUrl(production);
+  // Déployés (prod, staging, PR) : la base passe par Hyperdrive, jamais par l'URL de la
+  // machine qui déploie (un `.env.local` finirait dans la config du Worker, et son
+  // absence en CI basculerait la prod en mémoire).
+  const url = production || deployed ? undefined : databaseUrl(false);
   const domain = process.env.CLIP_DOMAIN ?? "clipshare.dev";
   const hyperdriveId = process.env.CLIP_HYPERDRIVE_ID ?? (deployed ? undefined : HYPERDRIVE_ID);
   if (hyperdriveId === undefined) {
@@ -194,8 +197,13 @@ export const settings = (mode: string | undefined): Settings => {
     emailRouting: !deployed && process.env.CLIP_EMAIL_ROUTING !== "0",
     webhook: (production || deployed) && process.env.CLIP_STREAM_WEBHOOK !== "0",
     databaseUrl: url,
-    // Staging et PR ont toujours leur base (branche Neon) : jamais de stockage en mémoire.
-    store: !deployed && (process.env.CLIP_STORE === "memory" || !url) ? "memory" : "postgres",
+    // Prod, staging et PR ont toujours leur base : jamais de stockage en mémoire.
+    store:
+      production || deployed
+        ? "postgres"
+        : process.env.CLIP_STORE === "memory" || !url
+          ? "memory"
+          : "postgres",
     hyperdriveId,
     bootstrap: deployed && process.env.CLIP_BOOTSTRAP === "1",
     chaos: process.env.CLIP_CHAOS ?? "0",
