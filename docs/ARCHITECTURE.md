@@ -2,7 +2,7 @@
 
 Clip est une démo « à la Grain » 100 % Cloudflare : on dépose une vidéo, sans compte, et elle devient un stream avec transcription, résumé, chapitres, miniatures, commentaires horodatés en direct et questions-réponses. Le produit (flows, UX, écrans) est décrit dans [PRODUCT.md](PRODUCT.md). Ce document décrit la tech.
 
-État au 2026-10-19 : déployé sur https://clipshare.dev en trois Workers (`clip-web`, `clip-api`, `clip-jobs`), plus le routeur de webhooks `clip-hooks`. Parcours complet vérifié en ligne : upload Stream, transcription, titre/résumé/chapitres, Neon via Hyperdrive. Chaque PR a son environnement sur `pr-<n>.clipshare.dev` : une Preview de clip-web branchée sur le staging pour une PR d'interface, un environnement complet sinon. `main` se déploie par la CI, sur le staging puis en production. Prise en main et conventions : [CONTRIBUTING.md](../CONTRIBUTING.md).
+État au 2026-10-19 : déployé sur https://clipshare.dev en trois Workers (`clip-web`, `clip-api`, `clip-jobs`), plus le routeur de webhooks `clip-hooks`. Parcours complet vérifié en ligne : upload Stream, transcription, titre/résumé/chapitres, Neon via Hyperdrive. Chaque PR a son environnement sur `pr-<n>.clipshare.dev` : une Preview de clip-web branchée sur le staging pour une PR d'interface, un environnement complet sinon. `main` se déploie sur le staging, une release GitHub en production. Prise en main et conventions : [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Stack et versions
 
@@ -219,7 +219,9 @@ Ressources nommées par mode : Queue `clip-notifications[-<mode>]`, Workflow `cl
 
 - **chaque PR et `main`** : `vp run -r types` (types `Env` générés), `vp check`, `vp run -r test` ;
 - **PR (branches du dépôt)** : un job `tri` lit les fichiers modifiés. Pour une PR d'interface, `vp run pr:preview <n>` publie la Preview `pr-<n>` sur le staging. Pour une PR serveur ou étiquetée `env-complet`, `vp run pr:up <n>` crée l'environnement complet (branche Neon copiée du staging, migrations, Hyperdrive, Queue, déploiement jobs → api → web). Dans les deux cas : vrai Stream et vraie IA, `vp run smoke <url>` et un commentaire avec l'URL ;
-- **`main`** : `vp run staging:up` et le test de fumée du staging, puis `vp run db:migrate:production`, `vp run @clip/{jobs,api,web,hooks}#deploy` et le contrôle de `/api/health`.
+- **`main`** : `vp run staging:up` et le test de fumée du staging (job Staging).
+
+`.github/workflows/release.yml`, à la publication d'une release GitHub : vérifie que le tag pointe sur un commit de `main` passé par le staging, puis `vp run db:migrate:production`, `vp run @clip/{jobs,api,web,hooks}#deploy` et le contrôle de `/api/health`.
 
 `.github/workflows/pr-cleanup.yml` lance `vp run pr:down <n>` (Preview comprise) à la fermeture de la PR. Secrets : `CLOUDFLARE_API_TOKEN` (permissions limitées, voir CONTRIBUTING.md) et `NEON_API_KEY`.
 

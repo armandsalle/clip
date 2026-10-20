@@ -104,7 +104,7 @@ Une Preview ne suffit pas pour une PR serveur : Cloudflare partage les Workflows
 3. `vp run smoke <url>` : dépôt d'un vrai MP4 en tus, encodage par Stream, pipeline jusqu'à la transcription, commentaire, suppression ;
 4. un commentaire sur la PR donne l'URL et le type d'environnement.
 
-**Staging.** Permanent, redéployé à chaque merge sur `main` avant la production (voir Release) :
+**Staging.** Permanent, redéployé à chaque merge sur `main` (la production attend une release, voir plus bas) :
 
 - `clip-api-staging` et `clip-jobs-staging` sur la branche Neon `staging` (sans expiration), avec leur Hyperdrive, leur Queue, leur Workflow et leur bucket ;
 - son site est la Preview `staging` de clip-web, sur `https://staging.clipshare.dev`.
@@ -128,12 +128,24 @@ La CI teste l'environnement par l'URL `workers.dev` de clip-web (ou de la Previe
 
 ## Release
 
-Un merge sur `main` déclenche, après les vérifications :
+Deux temps :
 
-1. la répétition sur le staging, `vp run staging:up` : migrations sur la branche `staging`, puis clip-jobs-staging et clip-api-staging, la Preview `staging` de clip-web, et le test de fumée. Un échec arrête là : la production n'est pas touchée ;
-2. `vp run db:migrate:production` : migrations sur la branche Neon `production` (URL demandée à l'API Neon, jamais stockée) ;
-3. le déploiement, dans l'ordre `clip-jobs` → `clip-api` → `clip-web` → `clip-hooks` (`cf deploy --mode production`) ;
-4. un contrôle de `https://clipshare.dev/api/health`.
+- **Merge sur `main`** : déploiement du **staging** seulement (`.github/workflows/ci.yml`, job Staging). `vp run staging:up` applique les migrations sur la branche `staging`, déploie clip-jobs-staging, clip-api-staging et la Preview `staging` de clip-web, puis lance le test de fumée.
+- **Publication d'une release GitHub** : déploiement de la **production** (`.github/workflows/release.yml`). Le tag doit pointer sur un commit de `main` qui a passé le job Staging ; sinon, rien n'est déployé.
+
+Pour publier une release (onglet Releases de GitHub, ou en ligne de commande) :
+
+```bash
+gh release create v2026.10.20 --target main --generate-notes
+```
+
+Le déploiement de la production enchaîne :
+
+1. `vp run db:migrate:production` : migrations sur la branche Neon `production` (URL demandée à l'API Neon, jamais stockée) ;
+2. le déploiement, dans l'ordre `clip-jobs` → `clip-api` → `clip-web` → `clip-hooks` (`cf deploy --mode production`) ;
+3. un contrôle de `https://clipshare.dev/api/health`.
+
+`cf deploy` refuse, en CI, d'écraser un réglage modifié dans le tableau de bord Cloudflare (il n'y a personne pour confirmer). Tout réglage d'un Worker se fait donc dans le code. Après une modification dans le tableau de bord, un déploiement confirmé à la main (`vp run @clip/<app>#deploy` dans un terminal) réaligne le Worker.
 
 Une vidéo en cours de traitement reprend sur le nouveau code : le Workflow rejoue ses étapes d'après leur nom. Renommer ou supprimer une étape demande donc de vérifier sur le staging qu'une vidéo lancée avant le déploiement se termine.
 
@@ -143,9 +155,9 @@ Les migrations doivent donc rester compatibles avec le code déjà en production
 
 À créer dans **Settings → Secrets and variables → Actions**, sans jamais les coller ailleurs :
 
-| Secret                 | Contenu                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `CLOUDFLARE_API_TOKEN` | Token de compte (Manage Account → Account API Tokens), limité au compte Clip et à la zone `clipshare.dev`. Compte : Account Settings Read, Workers Admin (ex-« Workers Scripts Write »), R2 Storage Write, Queues Write, Hyperdrive Write, Workers Containers Write, Secrets Store Edit (lier un secret du coffre à un Worker : Read ne suffit pas), Email Sending Write, Stream Write (vidéos des PR supprimées à leur fermeture). Zone `clipshare.dev` : Workers Routes Write, DNS Write, Email Routing Rules Write. |
-| `NEON_API_KEY`         | Clé d'API Neon limitée au projet Clip (Project-scoped API key).                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| Secret                 | Contenu                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `CLOUDFLARE_API_TOKEN` | Token de compte (Manage Account → Account API Tokens), limité au compte Clip et à la zone `clipshare.dev`. Compte : Account Settings Read, Workers Admin (ex-« Workers Scripts Write »), R2 Storage Write, Queues Write, Hyperdrive Write, Workers Containers Write, Secrets Store Edit (lier un secret du coffre à un Worker : Read ne suffit pas), Email Sending Write, Email Routing Rules Write (règle de réception `reply@` de clip-jobs, au niveau du compte : sans elle, le déploiement de la production échoue en 403), Stream Write (vidéos des PR supprimées à leur fermeture). Zone `clipshare.dev` : Workers Routes Write, DNS Write, Email Routing Rules Write. |
+| `NEON_API_KEY`         | Clé d'API Neon limitée au projet Clip (Project-scoped API key).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 Un environnement GitHub `production` (Settings → Environments) peut ajouter une validation manuelle avant le déploiement.

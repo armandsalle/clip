@@ -1,6 +1,6 @@
 # Vérifications à chaque PR et sur main. Par PR : Preview de clip-web sur le staging
-# (PR d'interface) ou environnement complet (PR serveur). Sur main : staging, puis
-# production. Secrets (créés à la main, cf. CONTRIBUTING.md) :
+# (PR d'interface) ou environnement complet (PR serveur). Sur main : staging. La
+# production se déploie à la publication d'une release (release.yml). Secrets (créés à la main, cf. CONTRIBUTING.md) :
 # CLOUDFLARE_API_TOKEN (token à permissions limitées) et NEON_API_KEY.
 name: CI
 
@@ -118,17 +118,17 @@ jobs:
             if (existing) await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });
             else await github.rest.issues.createComment({ ...context.repo, issue_number: context.issue.number, body });
 
-  production:
-    name: Production
+  staging:
+    name: Staging
     needs: check
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment:
-      name: production
-      url: https://clipshare.dev
+      name: staging
+      url: https://staging.clipshare.dev
     concurrency:
-      group: production
+      group: staging
       cancel-in-progress: false
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
@@ -139,20 +139,10 @@ jobs:
         with:
           node-version: "24"
           cache: true
-      # Répétition : migrations et Workers sur le staging, test de fumée, puis la prod.
-      # Un échec ici arrête le déploiement de la production.
+      # ffmpeg génère la vidéo du test de fumée.
       - run: command -v ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg)
+      # Migrations sur la branche Neon staging, clip-jobs-staging, clip-api-staging et la
+      # Preview staging de clip-web. La production attend une release (release.yml).
       - id: staging
         run: vp run staging:up
       - run: vp run smoke ${{ steps.staging.outputs.ci_url }}
-      - run: vp run db:migrate:production
-      # Dans cet ordre : jobs porte le Workflow et la Queue qu'api référence, api le RPC
-      # et les rooms que web relaie. Le Container de jobs se construit avec le Docker du runner.
-      - run: vp run @clip/jobs#deploy
-      - run: vp run @clip/api#deploy
-      - run: vp run @clip/web#deploy
-      # Routeur du webhook Stream (production, staging, PR) : après les api qu'il relaie.
-      - run: vp run @clip/hooks#deploy
-      # Indicatif : le Bot Fight Mode de clipshare.dev peut répondre 403 aux runners.
-      - run: curl --fail --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors https://clipshare.dev/api/health
-        continue-on-error: true
