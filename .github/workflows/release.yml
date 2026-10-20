@@ -1,0 +1,61 @@
+# Déploiement de la production à la publication d'une release GitHub (tag sur main).
+# Le commit doit être sur main et avoir passé le staging (job « Staging » de la CI) :
+# la production ne reçoit que ce qui a déjà tourné sur le staging.
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  CF_SEND_TELEMETRY: "false"
+  CLOUDFLARE_ACCOUNT_ID: cf7f360cd85645322d03de3ffb22249e
+
+jobs:
+  production:
+    name: Production
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment:
+      name: production
+      url: https://clipshare.dev
+    concurrency:
+      group: production
+      cancel-in-progress: false
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Commit sur main, passé par le staging
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          git merge-base --is-ancestor "$SHA" origin/main \
+            || { echo "::error::Le tag ${{ github.ref_name }} ne pointe pas sur un commit de main."; exit 1; }
+          staging=$(gh api "repos/${{ github.repository }}/commits/$SHA/check-runs?check_name=Staging" \
+            --jq '[.check_runs[] | select(.conclusion == "success")] | length')
+          [ "$staging" -gt 0 ] \
+            || { echo "::error::Le commit $SHA n'a pas (encore) passé le job Staging de la CI."; exit 1; }
+      - uses: voidzero-dev/setup-vp@v1.21.2
+        with:
+          node-version: "24"
+          cache: true
+      - run: vp run db:migrate:production
+      # Dans cet ordre : jobs porte le Workflow et la Queue qu'api référence, api le RPC
+      # et les rooms que web relaie. Le Container de jobs se construit avec le Docker du runner.
+      - run: vp run @clip/jobs#deploy
+      - run: vp run @clip/api#deploy
+      - run: vp run @clip/web#deploy
+      # Routeur du webhook Stream (production, staging, PR) : après les api qu'il relaie.
+      - run: vp run @clip/hooks#deploy
+      # Indicatif : le Bot Fight Mode de clipshare.dev peut répondre 403 aux runners.
+      - run: curl --fail --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors https://clipshare.dev/api/health
+        continue-on-error: true
