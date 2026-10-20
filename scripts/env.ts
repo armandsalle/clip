@@ -25,7 +25,8 @@
 // (créateur), clip-hooks lui relaie le webhook « vidéo prête ». Emails, Email Routing et
 // Container sont coupés (voir packages/config).
 //
-// Variables : CLOUDFLARE_API_TOKEN (ou `cf auth login`), NEON_API_KEY. Aucune valeur
+// Accès : CLOUDFLARE_API_TOKEN (ou `cf auth login`) et NEON_API_KEY (ou `neonctl auth`,
+// voir scripts/neon.ts). Aucune valeur
 // secrète n'est affichée : le mot de passe de la branche est masqué dans GitHub Actions.
 import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";

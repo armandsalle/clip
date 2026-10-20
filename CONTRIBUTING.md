@@ -51,7 +51,9 @@ Toutes les commandes du dépôt :
 | `vp run pr:up <n>` / `pr:preview <n>` / `pr:down <n>` | environnement de PR, complet ou Preview (normalement lancé par la CI)              |
 | `vp run staging:up`                                   | staging (normalement lancé par la CI de `main`)                                    |
 | `vp run staging:reset`                                | staging remis à zéro : branche Neon recréée, vidéos et bucket vidés                |
-| `vp run @clip/<app>#deploy`                           | déploiement en production (normalement lancé par la CI)                            |
+
+`pr:*` et `staging:*` passent par la CLI de Neon (`neonctl`, installée avec le dépôt). En local, connectez-vous une fois avec `vp exec neonctl auth` (et `cf auth login` dans `apps/api` pour Cloudflare) : aucune clé à copier. En CI, la CLI lit le secret `NEON_API_KEY`.
+| `vp run @clip/<app>#deploy` | déploiement en production (normalement lancé par la CI) |
 
 `cf` et les tâches ci-dessus sont des tâches Vite+ (`vite.config.ts`), pas des scripts npm : `vp run` les lance sans cache et avec tout l'environnement.
 
