@@ -50,7 +50,10 @@ Toutes les commandes du dépôt :
 | `vp run smoke <url>`                                  | test de fumée de bout en bout (faux Stream) : `vp run smoke http://localhost:5173` |
 | `vp run pr:up <n>` / `pr:preview <n>` / `pr:down <n>` | environnement de PR, complet ou Preview (normalement lancé par la CI)              |
 | `vp run staging:up`                                   | staging (normalement lancé par la CI de `main`)                                    |
-| `vp run @clip/<app>#deploy`                           | déploiement en production (normalement lancé par la CI)                            |
+| `vp run staging:reset`                                | staging remis à zéro : branche Neon recréée, vidéos et bucket vidés                |
+
+`pr:*` et `staging:*` passent par la CLI de Neon (`neonctl`, installée avec le dépôt). En local, connectez-vous une fois avec `vp exec neonctl auth` (et `cf auth login` dans `apps/api` pour Cloudflare) : aucune clé à copier. En CI, la CLI lit le secret `NEON_API_KEY`.
+| `vp run @clip/<app>#deploy` | déploiement en production (normalement lancé par la CI) |
 
 `cf` et les tâches ci-dessus sont des tâches Vite+ (`vite.config.ts`), pas des scripts npm : `vp run` les lance sans cache et avec tout l'environnement.
 
@@ -97,7 +100,7 @@ Une Preview ne suffit pas pour une PR serveur : Cloudflare partage les Workflows
 
 1. `vp check` et `vp run -r test` ;
 2. PR d'interface : `vp run pr:preview <n>` (`cf previews deploy pr-<n>` de clip-web) ;
-   PR serveur : `vp run pr:up <n>`, soit branche Neon `pr-<n>` (copie de production, vidée à sa création, expire seule au bout de 7 jours), migrations, Hyperdrive `clip-neon-pr-<n>`, Queue `clip-notifications-pr-<n>`, puis `cf deploy --mode pr-<n>` de clip-jobs, clip-api et clip-web ;
+   PR serveur : `vp run pr:up <n>`, soit branche Neon `pr-<n>` (copie du staging, jamais de la production, expire seule au bout de 7 jours), migrations, Hyperdrive `clip-neon-pr-<n>`, Queue `clip-notifications-pr-<n>`, puis `cf deploy --mode pr-<n>` de clip-jobs, clip-api et clip-web ;
 3. `vp run smoke <url>` : dépôt d'un vrai MP4 en tus, encodage par Stream, pipeline jusqu'à la transcription, commentaire, suppression ;
 4. un commentaire sur la PR donne l'URL et le type d'environnement.
 
@@ -105,6 +108,13 @@ Une Preview ne suffit pas pour une PR serveur : Cloudflare partage les Workflows
 
 - `clip-api-staging` et `clip-jobs-staging` sur la branche Neon `staging` (sans expiration), avec leur Hyperdrive, leur Queue, leur Workflow et leur bucket ;
 - son site est la Preview `staging` de clip-web, sur `https://staging.clipshare.dev`.
+
+**Les données de production ne quittent jamais la production.**
+
+- **La branche `staging` est une branche Neon « schéma seul »** (bêta), créée depuis `production` : les tables, aucune ligne. Le journal des migrations de Drizzle est vide lui aussi : à la création, `packages/db/scripts/rebuild.ts` vide la base et rejoue toutes les migrations depuis la première. Ensuite, chaque déploiement applique les nouvelles migrations.
+- **Les branches `pr-<n>` sont copiées du staging**, avec ses données de test.
+- **Remise à zéro** : `vp run staging:reset` supprime les vidéos Stream `clip-staging`, vide le bucket, recrée la branche, puis redéploie. Neon ne sait pas remettre à zéro une branche « schéma seul » depuis la production.
+- **Limite Neon** : une branche « schéma seul » est une branche racine, et leur nombre est limité par projet (3 en Free, 5 en Launch, production comprise). C'est pourquoi seul le staging en est une.
 
 Dans `apps/web/cloudflare.config.ts`, toute Preview de clip-web (`isPreview`) parle à `clip-api-staging`, jamais à la production.
 

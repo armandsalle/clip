@@ -1,6 +1,6 @@
 // Migrations de la base de production : `vp run db:migrate:production` (CI, sur main,
 // avant le déploiement). L'URL de la branche Neon `production` est demandée à l'API
-// Neon (NEON_API_KEY) : aucune URL de prod n'est stockée dans le dépôt ni dans un .env.
+// Neon (`neonctl`, NEON_API_KEY en CI) : aucune URL de prod n'est stockée dans le dépôt ni dans un .env.
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { connectionUri, findBranch } from "./neon.ts";
