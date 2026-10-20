@@ -225,8 +225,8 @@ catalogs:
       specifier: 1.7.3
       version: 1.7.3
     neonctl:
-      specifier: 8.0.10
-      version: 8.0.10
+      specifier: 8.8.0
+      version: 8.8.0
     pg:
       specifier: 8.23.1
       version: 8.23.1
@@ -273,7 +273,7 @@ importers:
         version: 24.19.2
       neonctl:
         specifier: 'catalog:'
-        version: 8.0.10(hono@4.13.13)(supports-color@10.2.2)
+        version: 8.8.0(hono@4.13.13)(supports-color@10.2.2)
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
@@ -1363,12 +1363,8 @@ packages:
     resolution: {integrity: sha512-WrOw/bcXm0f9qHkumlT1QlArXSTWqaY9sunsDpOk+yCCorCKMxvWT/a3xko4EYHVdeZoh00yI2TydXn6eyICDA==}
     engines: {node: '>= 10'}
 
-  '@neon/config-runtime@1.7.6':
-    resolution: {integrity: sha512-SBMzH0N+ystWAu06Cze8O49+EZRfJyceklMBYFdsRwPpR5strsJ5bWFH9f4v5Won/LA0Zgk54WAMsgjfx9kF3A==}
-    engines: {node: '>=20.19.0'}
-
-  '@neon/config@1.8.4':
-    resolution: {integrity: sha512-N4J8XxFicf6XoGNceAAAGfzZGedZjV/iOGnbpPAQV2qkIP4oLnkvumdR5kstEmoVgktJV7DfqVd9I6923JZGtg==}
+  '@neon/config-runtime@1.10.1':
+    resolution: {integrity: sha512-AfDU1LvMaxSNKDkgX5WS37GYxpXYqKE0zdExqs+ZdySUbVwp/CLz+ViSwNNQyDEZUSnUON1OcFS4KeOTYNA29g==}
     engines: {node: '>=20.19.0'}
 
   '@neon/config@1.9.2':
@@ -1380,9 +1376,14 @@ packages:
     engines: {node: '>=20.19.0'}
     hasBin: true
 
-  '@neon/sdk@7.0.1':
-    resolution: {integrity: sha512-Zyo84tVyK3cO/vkREgFSPZ0llGoWNgcbbz38/UkqyqKN/Ky6huHibTCyvnlnBV1aeWnJhEhg9W0HIylE6sCS0g==}
+  '@neon/realtime@0.1.1':
+    resolution: {integrity: sha512-YbTaKcq7Vmaw05oEu/1HNbxrtLeHaofnPHptd6QPGZj2M1uZJRJKKrjb+ShH0GpR5fpBlp8S4iZcTW3IsnIoqg==}
     engines: {node: '>=20.19.0'}
+    peerDependencies:
+      ws: ^8.21.2
+    peerDependenciesMeta:
+      ws:
+        optional: true
 
   '@neon/sdk@7.3.0':
     resolution: {integrity: sha512-Pv1dIfDH4iDDd15x2ihxIe97tvYGRxeyU4EPBgoIbH+naQLhN26qXr2W728rQU3GNmBDjh0eyb71fC7L8nxUpQ==}
@@ -2839,13 +2840,13 @@ packages:
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
-  neon@8.0.10:
-    resolution: {integrity: sha512-dB5rUtEiPAhT9SRdKqLsc7gmp9WzBP2wW8ekMpK7RCPbM2nV+zMle2Hm549CZitd9ScuGjf5n4RqLigCUV+xJQ==}
+  neon@8.8.0:
+    resolution: {integrity: sha512-P7b7TGm/WfyOy3p85EvK0IQHOZYMSiEJrbslo3leEjtnRiuvsysUZWfuOt3W+38ZoLuogJ67QmFBcBAsjIrJdg==}
     engines: {node: '>=20.19.0'}
     hasBin: true
 
-  neonctl@8.0.10:
-    resolution: {integrity: sha512-cAHqcFx7FwV+ltxfXFeoIVkXlDyKYcQqe5T4qKgM4XSVY+drbF75hs63hZpi+R6i1UwU+wchNKlnpcmdOfdYPg==}
+  neonctl@8.8.0:
+    resolution: {integrity: sha512-g8gHhPOVCdlirwzKMIMrf+TZ4xQZmiuBAvXIxb+lwvscLxIcc3bhnnXGl/9GsUVDY0GSQ+yFz0Ooybo/jHepSg==}
     engines: {node: '>=20.19.0'}
     hasBin: true
 
@@ -2943,6 +2944,10 @@ packages:
   pg-connection-string@2.14.1:
     resolution: {integrity: sha512-qR3kGNPBLpCNtz0evbKA0Y/MRFXwSSdT+pTJvYp/bXTcReZbvX1kzF0IyTc1QnxqF7AZbOeBhNL8R5mYQZV/MA==}
 
+  pg-format@1.0.4:
+    resolution: {integrity: sha512-YyKEF78pEA6wwTAqOUaHIN/rWpfzzIuMh9KdAhc3rSLQ/7zkRFcCgYBAEGatDstLyZw4g0s9SNICmaTGnBVeyw==}
+    engines: {node: '>=4.0'}
+
   pg-int8@1.0.1:
     resolution: {integrity: sha512-WCtabS6t3c8SkpDBUlb1kjOs7l66xsGdKpIPZsg4wR+B3+u9UAum2odSsF9tnvxg80h4ZxLWMy4pRjOsFIqQpw==}
     engines: {node: '>=4.0.0'}
@@ -2994,6 +2999,10 @@ packages:
     resolution: {integrity: sha512-VpZrUqU5A69eQyW2c5CA1jtLecCsN2U/bD6VilrFDWq5+5UIEVO7nazS3TEcHf1zuPYO/sqGvUvW62g86RXZuA==}
     engines: {node: '>=4'}
 
+  postgres-array@3.0.4:
+    resolution: {integrity: sha512-nAUSGfSDGOaOAEGwqsRY27GPOea7CNipJPOA7lPbdEpx5Kg3qzdP0AaWC5MlhTWV9s4hFX39nomVZ+C4tnGOJQ==}
+    engines: {node: '>=12'}
+
   postgres-bytea@1.0.1:
     resolution: {integrity: sha512-5+5HqXnsZPE65IJZSMkZtURARZelel2oXUEO8rH83VS/hxH5vv1uHquPg5wZs8yMAfdv971IU+kcPUczi7NVBQ==}
     engines: {node: '>=0.10.0'}
@@ -3005,6 +3014,11 @@ packages:
   postgres-interval@1.2.0:
     resolution: {integrity: sha512-9ZhXKM/rw350N1ovuWHbGxnGh/SNJ4cnxHiM0rxE4VN41wsg8P8zWn9hv/buK00RP4WvlOyr/RBDiptyxVbkZQ==}
     engines: {node: '>=0.10.0'}
+
+  prettier@3.9.8:
+    resolution: {integrity: sha512-WRFq3Wn3WId7LLROfMLdH7xaFr2jR62wU8nLO6rQUOLOxNZUviyJQs1M0iIhLexSFy+L+w0ch66wtoO2jRjG0A==}
+    engines: {node: '>=14'}
+    hasBin: true
 
   pretty-format@27.5.1:
     resolution: {integrity: sha512-Qb1gy5OrP5+zDf2Bvnzdl3jsTf1qXVMazbvCoKhtKqVs4/YK4ozX4gKQJJVyNe+cajNPn0KoC0MC3FUmaHWEmQ==}
@@ -3846,7 +3860,7 @@ snapshots:
       https-proxy-agent: 7.0.6(supports-color@10.2.2)
       node-fetch: 2.7.0
       nopt: 8.1.0
-      semver: 7.8.5
+      semver: 7.7.2
       tar: 7.5.22
     transitivePeerDependencies:
       - encoding
@@ -3904,9 +3918,9 @@ snapshots:
       '@napi-rs/keyring-win32-x64-msvc': 1.3.0
     optional: true
 
-  '@neon/config-runtime@1.7.6(supports-color@10.2.2)':
+  '@neon/config-runtime@1.10.1(supports-color@10.2.2)':
     dependencies:
-      '@neon/config': 1.8.4
+      '@neon/config': 1.9.2
       '@vercel/nft': 1.11.0(supports-color@10.2.2)
       esbuild: 0.28.1
       fflate: 0.8.3
@@ -3914,12 +3928,6 @@ snapshots:
       - encoding
       - rollup
       - supports-color
-
-  '@neon/config@1.8.4':
-    dependencies:
-      '@neon/sdk': 7.0.1
-      jiti: 2.7.0
-      zod: 4.6.5
 
   '@neon/config@1.9.2':
     dependencies:
@@ -3935,7 +3943,11 @@ snapshots:
     optionalDependencies:
       '@napi-rs/keyring': 1.3.0
 
-  '@neon/sdk@7.0.1': {}
+  '@neon/realtime@0.1.1(ws@8.22.0)':
+    dependencies:
+      postgres-array: 3.0.4
+    optionalDependencies:
+      ws: 8.22.0
 
   '@neon/sdk@7.3.0': {}
 
@@ -4995,14 +5007,15 @@ snapshots:
 
   nanoid@3.3.20: {}
 
-  neon@8.0.10(hono@4.13.13)(supports-color@10.2.2):
+  neon@8.8.0(hono@4.13.13)(supports-color@10.2.2):
     dependencies:
       '@clack/core': 0.4.2
       '@clack/prompts': 0.10.1
       '@hono/node-server': 2.0.4(hono@4.13.13)
-      '@neon/config': 1.8.4
-      '@neon/config-runtime': 1.7.6(supports-color@10.2.2)
-      '@neon/sdk': 7.0.1
+      '@neon/config': 1.9.2
+      '@neon/config-runtime': 1.10.1(supports-color@10.2.2)
+      '@neon/realtime': 0.1.1(ws@8.22.0)
+      '@neon/sdk': 7.3.0
       '@segment/analytics-node': 1.3.0
       add-mcp: 2.0.0
       chalk: 5.3.0
@@ -5013,12 +5026,18 @@ snapshots:
       fflate: 0.8.3
       open: 10.2.0
       openid-client: 6.8.1
+      pg: 8.23.1
+      pg-connection-string: 2.14.1
+      pg-format: 1.0.4
       pg-protocol: 1.16.1
       picocolors: 1.1.1
+      postgres-array: 3.0.4
+      prettier: 3.9.8
       prompts: 2.4.2
       semver: 7.7.2
       undici: 7.29.1
       which: 3.0.1
+      ws: 8.22.0
       yaml: 2.9.1
       yargs: 17.7.2
       yoctocolors: 2.2.0
@@ -5026,19 +5045,25 @@ snapshots:
       '@napi-rs/keyring': 1.3.0
       esbuild: 0.28.1
     transitivePeerDependencies:
+      - bufferutil
       - encoding
       - hono
+      - pg-native
       - rollup
       - supports-color
+      - utf-8-validate
 
-  neonctl@8.0.10(hono@4.13.13)(supports-color@10.2.2):
+  neonctl@8.8.0(hono@4.13.13)(supports-color@10.2.2):
     dependencies:
-      neon: 8.0.10(hono@4.13.13)(supports-color@10.2.2)
+      neon: 8.8.0(hono@4.13.13)(supports-color@10.2.2)
     transitivePeerDependencies:
+      - bufferutil
       - encoding
       - hono
+      - pg-native
       - rollup
       - supports-color
+      - utf-8-validate
 
   node-fetch@2.7.0:
     dependencies:
@@ -5147,6 +5172,8 @@ snapshots:
 
   pg-connection-string@2.14.1: {}
 
+  pg-format@1.0.4: {}
+
   pg-int8@1.0.1: {}
 
   pg-pool@3.14.0(pg@8.23.1):
@@ -5193,6 +5220,8 @@ snapshots:
 
   postgres-array@2.0.0: {}
 
+  postgres-array@3.0.4: {}
+
   postgres-bytea@1.0.1: {}
 
   postgres-date@1.0.7: {}
@@ -5200,6 +5229,8 @@ snapshots:
   postgres-interval@1.2.0:
     dependencies:
       xtend: 4.0.2
+
+  prettier@3.9.8: {}
 
   pretty-format@27.5.1:
     dependencies:
