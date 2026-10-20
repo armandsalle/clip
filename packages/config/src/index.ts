@@ -80,12 +80,18 @@ export const NEAR_DATABASE: { region: string } = { region: "aws:eu-central-1" };
 export const runtime: {
   compatibilityDate: string;
   compatibilityFlags: Array<string>;
-  observability: { enabled: boolean };
+  observability: {
+    enabled: boolean;
+    issues: { enabled: boolean };
+    traces: { enabled: boolean };
+  };
 } = {
   compatibilityDate: "2026-10-15",
   // @effect/sql-pg ouvre ses connexions via node:net.
   compatibilityFlags: ["nodejs_compat"],
-  observability: { enabled: true },
+  // Logs, traces et « issues » (erreurs regroupées) : activés dans le tableau de bord,
+  // déclarés ici pour que `cf deploy --strict` (CI) ne voie pas de conflit.
+  observability: { enabled: true, issues: { enabled: true }, traces: { enabled: true } },
 };
 
 export interface Settings {
