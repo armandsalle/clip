@@ -251,7 +251,7 @@ const deployPreview = async (name: string) => {
 };
 
 const deletePreview = (name: string) =>
-  attempt(`Preview ${name}`, () => cf(["previews", "delete", name, "--worker", web]));
+  attempt(`Preview ${name}`, () => cf(["previews", "delete", name, "--worker", web, "--force"]));
 
 const up = async () => {
   if (!staging) {
