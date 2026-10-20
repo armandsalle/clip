@@ -57,6 +57,19 @@ describe("settings", () => {
       hostname: "clipshare.dev",
     });
   });
+
+  it("production : toujours Postgres, jamais l'URL de la machine qui déploie", () => {
+    const before = process.env.DATABASE_URL;
+    try {
+      process.env.DATABASE_URL = "postgres://quelquun:secret@exemple/base";
+      expect(settings("production")).toMatchObject({ store: "postgres", databaseUrl: undefined });
+      delete process.env.DATABASE_URL;
+      expect(settings("production").store).toBe("postgres");
+    } finally {
+      if (before === undefined) delete process.env.DATABASE_URL;
+      else process.env.DATABASE_URL = before;
+    }
+  });
 });
 
 describe("modeOfStreamCreator", () => {
