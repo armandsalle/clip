@@ -18,6 +18,13 @@ export const LOCAL_DATABASE_URL = "postgres://clip:clip@localhost:5433/clip";
 /** Environnement éphémère d'une PR : `pr-<numéro>`. */
 export const isPreviewMode = (mode: string) => /^pr-\d+$/.test(mode);
 
+/**
+ * Staging permanent : clip-api-staging et clip-jobs-staging sur la branche Neon
+ * `staging`, redéployés depuis main avant la production. Le site du staging et des PR
+ * d'interface est une Preview Cloudflare de clip-web branchée sur clip-api-staging.
+ */
+export const STAGING = "staging";
+
 let warnedProductionDb = false;
 
 /**
@@ -56,9 +63,9 @@ export const workersDevUrl = (worker: string) =>
 
 /** Créateur Stream d'un mode (`clip-production`, `clip-pr-12`, `clip-dev`). */
 export const streamCreator = (mode: string) => `clip-${mode}`;
-/** Mode d'un créateur Stream, s'il désigne un environnement déployé (production ou PR). */
+/** Mode d'un créateur Stream, s'il désigne un environnement déployé (production, staging, PR). */
 export const modeOfStreamCreator = (creator: string | null | undefined): string | null =>
-  /^clip-(production|pr-\d+)$/.exec(creator ?? "")?.[1] ?? null;
+  /^clip-(production|staging|pr-\d+)$/.exec(creator ?? "")?.[1] ?? null;
 
 /** Config Hyperdrive « clip-neon » (connexion directe vers Neon, eu-central-1, sans cache). */
 export const HYPERDRIVE_ID = "db72ca80c92e4ba5978e21c0e2121ae8";
@@ -109,22 +116,24 @@ export interface Settings {
   readonly domain: string;
   /** `pr-<n>` : environnement éphémère d'une PR (domaine `pr-<n>.<domaine>`). */
   readonly preview: boolean;
-  /** Nom d'hôte public de clip-web (production et PR), `null` en dev. */
+  /** Staging ou PR : déployé, vrai Stream, sa propre base, emails coupés. */
+  readonly deployed: boolean;
+  /** Nom d'hôte public de clip-web (production et PR), `null` en dev et en staging. */
   readonly hostname: string | null;
-  /** Envoi d'emails (Email Service) : coupé en PR, où les notifications sont seulement journalisées. */
+  /** Envoi d'emails (Email Service) : coupé en staging et en PR, où les notifications sont seulement journalisées. */
   readonly email: boolean;
-  /** La règle de réception exige Email Routing actif sur le domaine (jamais en PR : elle volerait celle de la prod). */
+  /** La règle de réception exige Email Routing actif sur le domaine (jamais hors prod : elle volerait celle de la prod). */
   readonly emailRouting: boolean;
-  /** Webhook Stream « vidéo prête », reçu par clip-hooks puis relayé (production et PR). */
+  /** Webhook Stream « vidéo prête », reçu par clip-hooks puis relayé (production, staging, PR). */
   readonly webhook: boolean;
   readonly databaseUrl: string | undefined;
   /** `postgres` dès qu'une URL est disponible ; CLIP_STORE=memory force la mémoire. */
   readonly store: "postgres" | "memory";
   readonly hyperdriveId: string;
   /**
-   * Premier déploiement d'un environnement de PR (CLIP_BOOTSTRAP=1) : clip-jobs part
+   * Premier déploiement du staging ou d'une PR (CLIP_BOOTSTRAP=1) : clip-jobs part
    * sans binding vers clip-api, qui n'existe pas encore (et qui référence le Workflow
-   * de jobs). `pr:up` redéploie jobs complet juste après api.
+   * de jobs). `scripts/env.ts` redéploie jobs complet juste après api.
    */
   readonly bootstrap: boolean;
   readonly chaos: string;
@@ -150,12 +159,13 @@ export const settings = (mode: string | undefined): Settings => {
   const m = !mode || mode === "development" ? "dev" : mode;
   const production = m === "production";
   const preview = isPreviewMode(m);
+  const deployed = preview || m === STAGING;
   const n = resourceNames(m);
   const url = databaseUrl(production);
   const domain = process.env.CLIP_DOMAIN ?? "clipshare.dev";
-  const hyperdriveId = process.env.CLIP_HYPERDRIVE_ID ?? (preview ? undefined : HYPERDRIVE_ID);
+  const hyperdriveId = process.env.CLIP_HYPERDRIVE_ID ?? (deployed ? undefined : HYPERDRIVE_ID);
   if (hyperdriveId === undefined) {
-    // Sans Hyperdrive propre, une PR se brancherait sur la base de production.
+    // Sans Hyperdrive propre, le staging ou une PR se brancherait sur la base de production.
     throw new Error(
       `[clip] mode ${m} : CLIP_HYPERDRIVE_ID (Hyperdrive de la branche Neon ${m}) manquant`,
     );
@@ -165,22 +175,23 @@ export const settings = (mode: string | undefined): Settings => {
     production,
     names: n.workers,
     resources: { notifications: n.notifications, pipeline: n.pipeline, media: n.media },
-    // Une PR valide le vrai produit : vrai Stream, vraie IA (comme en production).
-    remote: production || preview || process.env.CLIP_REMOTE === "1",
+    // Staging et PR valident le vrai produit : vrai Stream, vraie IA (comme en production).
+    remote: production || deployed || process.env.CLIP_REMOTE === "1",
     streamCreator: streamCreator(m),
     // 30 jours : le minimum accepté par Stream pour `scheduleddeletion`.
     streamDeleteAfterDays: production ? null : 30,
     domain,
     preview,
+    deployed,
     hostname: production ? domain : preview ? `${m}.${domain}` : null,
-    email: !preview && process.env.CLIP_EMAIL !== "0",
-    emailRouting: !preview && process.env.CLIP_EMAIL_ROUTING !== "0",
-    webhook: (production || preview) && process.env.CLIP_STREAM_WEBHOOK !== "0",
+    email: !deployed && process.env.CLIP_EMAIL !== "0",
+    emailRouting: !deployed && process.env.CLIP_EMAIL_ROUTING !== "0",
+    webhook: (production || deployed) && process.env.CLIP_STREAM_WEBHOOK !== "0",
     databaseUrl: url,
-    // Une PR a toujours sa base (branche Neon pr-<n>) : jamais de stockage en mémoire.
-    store: !preview && (process.env.CLIP_STORE === "memory" || !url) ? "memory" : "postgres",
+    // Staging et PR ont toujours leur base (branche Neon) : jamais de stockage en mémoire.
+    store: !deployed && (process.env.CLIP_STORE === "memory" || !url) ? "memory" : "postgres",
     hyperdriveId,
-    bootstrap: preview && process.env.CLIP_BOOTSTRAP === "1",
+    bootstrap: deployed && process.env.CLIP_BOOTSTRAP === "1",
     chaos: process.env.CLIP_CHAOS ?? "0",
   };
 };

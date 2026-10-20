@@ -34,14 +34,20 @@ export const findBranch = async (name: string): Promise<NeonBranch | null> => {
   return branches.find((b) => b.name === name) ?? null;
 };
 
-/** Branche copiée de la branche par défaut (production), qui expire seule (comme neon.ts). */
+/**
+ * Branche copiée de la branche par défaut (production). Avec `ttlDays`, elle expire seule
+ * (comme neon.ts) ; sans, elle est permanente (staging).
+ */
 export const createBranch = async (
   name: string,
-  options: { readonly ttlDays: number },
+  options: { readonly ttlDays?: number },
 ): Promise<NeonBranch> => {
-  const expiresAt = new Date(Date.now() + options.ttlDays * 24 * 3600 * 1000).toISOString();
+  const expiresAt =
+    options.ttlDays === undefined
+      ? undefined
+      : new Date(Date.now() + options.ttlDays * 24 * 3600 * 1000).toISOString();
   const { branch } = await neon<{ branch: NeonBranch }>("POST", "/branches", {
-    branch: { name, expires_at: expiresAt },
+    branch: { name, ...(expiresAt && { expires_at: expiresAt }) },
     endpoints: [{ type: "read_write" }],
   });
   return branch;

@@ -1,10 +1,13 @@
-# Vérifications à chaque PR et sur main ; environnement éphémère par PR ; déploiement
-# de la production sur main. Secrets (créés à la main, cf. CONTRIBUTING.md) :
+# Vérifications à chaque PR et sur main. Par PR : Preview de clip-web sur le staging
+# (PR d'interface) ou environnement complet (PR serveur). Sur main : staging, puis
+# production. Secrets (créés à la main, cf. CONTRIBUTING.md) :
 # CLOUDFLARE_API_TOKEN (token à permissions limitées) et NEON_API_KEY.
 name: CI
 
 on:
   pull_request:
+    # `labeled` : l'étiquette env-complet relance le tri.
+    types: [opened, synchronize, reopened, labeled]
   push:
     branches: [main]
 
@@ -35,9 +38,34 @@ jobs:
       - run: vp check
       - run: vp run -r test
 
+  # PR d'interface si tous les fichiers modifiés sont dans le site (code, fichiers
+  # statiques, proxy) ou la documentation ; sinon environnement complet. L'étiquette
+  # env-complet force l'environnement complet.
+  tri:
+    name: Type d'environnement
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      kind: ${{ steps.tri.outputs.kind }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - id: tri
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          FORCE: ${{ contains(github.event.pull_request.labels.*.name, 'env-complet') }}
+        run: |
+          others=$(git diff --name-only "$BASE"...HEAD \
+            | grep -vE '^(apps/web/(src|public|worker)/|apps/web/index\.html$|docs/|[^/]*\.md$)' || true)
+          if [ "$FORCE" = "true" ] || [ -n "$others" ]; then kind=complet; else kind=interface; fi
+          echo "kind=$kind" >> "$GITHUB_OUTPUT"
+          echo "Environnement : $kind"
+          [ -n "$others" ] && printf 'Hors du site :\n%s\n' "$others" || true
+
   preview:
     name: Environnement de PR
-    needs: check
+    needs: [check, tri]
     # Jamais pour une PR venue d'un fork : elle n'a pas accès aux secrets.
     if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
@@ -58,10 +86,11 @@ jobs:
         with:
           node-version: "24"
           cache: true
-      # ffmpeg génère les vidéos de démo du seed (lecteur non vide).
+      # ffmpeg génère la vidéo du test de fumée.
       - run: command -v ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg)
+      # Une PR déjà passée en environnement complet le garde (voir scripts/env.ts).
       - id: env
-        run: vp run pr:up ${{ github.event.pull_request.number }}
+        run: vp run ${{ needs.tri.outputs.kind == 'interface' && 'pr:preview' || 'pr:up' }} ${{ github.event.pull_request.number }}
       # Par workers.dev : le Bot Fight Mode de clipshare.dev bloque les runners (403).
       - run: vp run smoke ${{ steps.env.outputs.ci_url }}
       - name: Commentaire sur la PR
@@ -69,14 +98,20 @@ jobs:
         uses: actions/github-script@v9
         env:
           URL: ${{ steps.env.outputs.url }}
+          KIND: ${{ steps.env.outputs.kind }}
           OUTCOME: ${{ job.status }}
         with:
           script: |
             const marker = "<!-- clip-pr-env -->";
             const run = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
             const sha = context.payload.pull_request.head.sha.slice(0, 7);
+            const n = context.issue.number;
+            const details = process.env.KIND === "interface"
+              ? `Preview \`pr-${n}\` de clip-web, branchée sur le staging (clip-api-staging, branche Neon \`staging\`, données de test partagées). Pour tester l'api, le pipeline ou la base : étiquette \`env-complet\`. Supprimée à la fermeture de la PR.`
+              : `Trois Workers \`*-pr-${n}\`, branche Neon \`pr-${n}\`, vrai Stream (vidéos étiquetées \`clip-pr-${n}\`) et vraie IA, emails coupés. Tout est supprimé à la fermeture de la PR, vidéos Stream comprises.`;
+            const title = process.env.KIND === "interface" ? "Preview de PR prête" : "Environnement de PR prêt";
             const body = process.env.OUTCOME === "success"
-              ? `${marker}\n### Environnement de PR prêt\n\n${process.env.URL}\n\nCommit ${sha} · test de fumée vert · [journal](${run})\n\nTrois Workers \`*-pr-${context.issue.number}\`, branche Neon \`pr-${context.issue.number}\`, vrai Stream (vidéos étiquetées \`clip-pr-${context.issue.number}\`) et vraie IA, emails coupés. Tout est supprimé à la fermeture de la PR, vidéos Stream comprises.`
+              ? `${marker}\n### ${title}\n\n${process.env.URL}\n\nCommit ${sha} · test de fumée vert · [journal](${run})\n\n${details}`
               : `${marker}\n### Environnement de PR en échec\n\nCommit ${sha} · [journal](${run})`;
             const { data: comments } = await github.rest.issues.listComments({ ...context.repo, issue_number: context.issue.number, per_page: 100 });
             const existing = comments.find((c) => c.body?.includes(marker));
@@ -104,13 +139,19 @@ jobs:
         with:
           node-version: "24"
           cache: true
+      # Répétition : migrations et Workers sur le staging, test de fumée, puis la prod.
+      # Un échec ici arrête le déploiement de la production.
+      - run: command -v ffmpeg || (sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends ffmpeg)
+      - id: staging
+        run: vp run staging:up
+      - run: vp run smoke ${{ steps.staging.outputs.ci_url }}
       - run: vp run db:migrate:production
       # Dans cet ordre : jobs porte le Workflow et la Queue qu'api référence, api le RPC
       # et les rooms que web relaie. Le Container de jobs se construit avec le Docker du runner.
       - run: vp run @clip/jobs#deploy
       - run: vp run @clip/api#deploy
       - run: vp run @clip/web#deploy
-      # Routeur du webhook Stream (production, PR) : après api, qu'il relaie.
+      # Routeur du webhook Stream (production, staging, PR) : après les api qu'il relaie.
       - run: vp run @clip/hooks#deploy
       # Indicatif : le Bot Fight Mode de clipshare.dev peut répondre 403 aux runners.
       - run: curl --fail --silent --show-error --retry 5 --retry-delay 5 --retry-all-errors https://clipshare.dev/api/health

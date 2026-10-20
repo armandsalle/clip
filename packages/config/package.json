@@ -5,6 +5,9 @@
   "exports": {
     ".": "./src/index.ts"
   },
+  "scripts": {
+    "test": "vp test"
+  },
   "devDependencies": {
     "@types/node": "catalog:",
     "typescript": "catalog:",

@@ -42,5 +42,5 @@ jobs:
             const marker = "<!-- clip-pr-env -->";
             const { data: comments } = await github.rest.issues.listComments({ ...context.repo, issue_number: context.issue.number, per_page: 100 });
             const existing = comments.find((c) => c.body?.includes(marker));
-            const body = `${marker}\n### Environnement de PR supprimé\n\nVidéos Stream, Workers, Workflow, Queue, bucket R2, Hyperdrive et branche Neon \`pr-${context.issue.number}\`.`;
+            const body = `${marker}\n### Environnement de PR supprimé\n\nPreview, vidéos Stream, Workers, Workflow, Queue, bucket R2, Hyperdrive et branche Neon \`pr-${context.issue.number}\`.`;
             if (existing) await github.rest.issues.updateComment({ ...context.repo, comment_id: existing.id, body });

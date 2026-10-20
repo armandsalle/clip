@@ -41,15 +41,16 @@ Le hook `pre-commit` lance `vp check --fix` sur les fichiers indexés. Après un
 
 Toutes les commandes du dépôt :
 
-| Commande                           | Effet                                                                              |
-| ---------------------------------- | ---------------------------------------------------------------------------------- |
-| `vp run dev`                       | `cf dev` : web, api et jobs ensemble (api et jobs en Workers auxiliaires)          |
-| `vp run db:up`                     | Postgres Docker (`compose.yaml`)                                                   |
-| `vp run db:migrate`                | migrations Drizzle sur la base de dev                                              |
-| `vp run db:seed`                   | migrations + vidéos de démo (+ envoi des MP4 au faux Stream si `dev` tourne)       |
-| `vp run smoke <url>`               | test de fumée de bout en bout (faux Stream) : `vp run smoke http://localhost:5173` |
-| `vp run pr:up <n>` / `pr:down <n>` | environnement de PR (normalement lancé par la CI)                                  |
-| `vp run @clip/<app>#deploy`        | déploiement en production (normalement lancé par la CI)                            |
+| Commande                                              | Effet                                                                              |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `vp run dev`                                          | `cf dev` : web, api et jobs ensemble (api et jobs en Workers auxiliaires)          |
+| `vp run db:up`                                        | Postgres Docker (`compose.yaml`)                                                   |
+| `vp run db:migrate`                                   | migrations Drizzle sur la base de dev                                              |
+| `vp run db:seed`                                      | migrations + vidéos de démo (+ envoi des MP4 au faux Stream si `dev` tourne)       |
+| `vp run smoke <url>`                                  | test de fumée de bout en bout (faux Stream) : `vp run smoke http://localhost:5173` |
+| `vp run pr:up <n>` / `pr:preview <n>` / `pr:down <n>` | environnement de PR, complet ou Preview (normalement lancé par la CI)              |
+| `vp run staging:up`                                   | staging (normalement lancé par la CI de `main`)                                    |
+| `vp run @clip/<app>#deploy`                           | déploiement en production (normalement lancé par la CI)                            |
 
 `cf` et les tâches ci-dessus sont des tâches Vite+ (`vite.config.ts`), pas des scripts npm : `vp run` les lance sans cache et avec tout l'environnement.
 
@@ -81,28 +82,50 @@ Toutes les commandes du dépôt :
 
 ## Pull requests
 
-Chaque PR ouverte depuis une branche du dépôt reçoit son environnement complet, mis à jour à chaque push. Il sert à valider le vrai produit : **vrai Stream et vraie IA**, comme en production.
+Chaque PR ouverte depuis une branche du dépôt reçoit un environnement, mis à jour à chaque push, sur `https://pr-<n>.clipshare.dev`. Il sert à valider le vrai produit : **vrai Stream et vraie IA**, comme en production. La CI choisit entre deux types, d'après les fichiers modifiés :
+
+| PR              | Fichiers modifiés                                                                                                        | Environnement                                                                                                      |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| **d'interface** | uniquement `apps/web/src`, `apps/web/public`, `apps/web/worker`, `apps/web/index.html`, `docs/` ou un `*.md` à la racine | Preview `pr-<n>` de clip-web, branchée sur le **staging** : prête en moins d'une minute, données de test partagées |
+| **serveur**     | tout le reste (api, jobs, `packages/`, migrations, config, dépendances)                                                  | environnement complet : trois Workers, branche Neon, Queue, Workflow à elle                                        |
+
+L'étiquette `env-complet` force l'environnement complet. Une PR passée une fois en complet le reste : sa Preview est alors supprimée, pour libérer `pr-<n>.clipshare.dev`.
+
+Une Preview ne suffit pas pour une PR serveur : Cloudflare partage les Workflows entre les Previews d'un Worker, une Queue ne peut pas livrer à une Preview, et un service binding atteint toujours la version principale du Worker visé.
+
+Étapes de la CI :
 
 1. `vp check` et `vp run -r test` ;
-2. `vp run pr:up <n>` : branche Neon `pr-<n>` (copie de production, vidée à sa création, expire seule au bout de 7 jours), migrations, Hyperdrive `clip-neon-pr-<n>`, Queue `clip-notifications-pr-<n>`, puis `cf deploy --mode pr-<n>` de clip-jobs, clip-api et clip-web ;
+2. PR d'interface : `vp run pr:preview <n>` (`cf previews deploy pr-<n>` de clip-web) ;
+   PR serveur : `vp run pr:up <n>`, soit branche Neon `pr-<n>` (copie de production, vidée à sa création, expire seule au bout de 7 jours), migrations, Hyperdrive `clip-neon-pr-<n>`, Queue `clip-notifications-pr-<n>`, puis `cf deploy --mode pr-<n>` de clip-jobs, clip-api et clip-web ;
 3. `vp run smoke <url>` : dépôt d'un vrai MP4 en tus, encodage par Stream, pipeline jusqu'à la transcription, commentaire, suppression ;
-4. un commentaire sur la PR donne l'URL, `https://pr-<n>.clipshare.dev`.
+4. un commentaire sur la PR donne l'URL et le type d'environnement.
 
-**Vidéos Stream étiquetées par environnement.** Chaque dépôt porte le créateur Stream de son environnement (`clip-production`, `clip-pr-12`, `clip-dev`) et le nom `<créateur>/<id de la vidéo>`, visible dans le tableau de bord. Hors production, Stream les supprime de lui-même au bout de 30 jours. Un environnement ne supprime jamais une vidéo Stream d'un autre créateur.
+**Staging.** Permanent, redéployé à chaque merge sur `main` avant la production (voir Release) :
 
-**Webhook « vidéo prête ».** Stream n'accepte qu'un webhook par compte : `https://clipshare.dev/api/stream/webhook`. Le Worker `clip-hooks` (`apps/hooks`), sur une route qui passe avant clip-web, vérifie la signature et relaie la requête à l'environnement de la vidéo, d'après son créateur : clip-api en production, clip-web de la PR par son URL `workers.dev` sinon.
+- `clip-api-staging` et `clip-jobs-staging` sur la branche Neon `staging` (sans expiration), avec leur Hyperdrive, leur Queue, leur Workflow et leur bucket ;
+- son site est la Preview `staging` de clip-web, sur `https://staging.clipshare.dev`.
 
-Emails, Email Routing et Container restent coupés en PR. À la fermeture de la PR, `vp run pr:down <n>` supprime tout : vidéos Stream `clip-pr-<n>`, Workers (et leurs Durable Objects), Workflow, Queue, bucket R2, Hyperdrive, branche Neon. Les PR venues d'un fork n'ont ni secrets ni environnement.
+Dans `apps/web/cloudflare.config.ts`, toute Preview de clip-web (`isPreview`) parle à `clip-api-staging`, jamais à la production.
 
-La CI teste l'environnement par l'URL `workers.dev` de clip-web : le Bot Fight Mode de `clipshare.dev` répond 403 aux runners GitHub.
+**Vidéos Stream étiquetées par environnement.** Chaque dépôt porte le créateur Stream de son environnement (`clip-production`, `clip-staging`, `clip-pr-12`, `clip-dev`) et le nom `<créateur>/<id de la vidéo>`, visible dans le tableau de bord. Hors production, Stream les supprime de lui-même au bout de 30 jours. Un environnement ne supprime jamais une vidéo Stream d'un autre créateur.
+
+**Webhook « vidéo prête ».** Stream n'accepte qu'un webhook par compte : `https://clipshare.dev/api/stream/webhook`. Le Worker `clip-hooks` (`apps/hooks`), sur une route qui passe avant clip-web, vérifie la signature et relaie la requête à l'environnement de la vidéo, d'après son créateur : clip-api en production, clip-api-staging pour le staging (service bindings), clip-web de la PR complète par son URL `workers.dev`.
+
+Emails, Email Routing et Container restent coupés en staging et en PR. À la fermeture de la PR, `vp run pr:down <n>` supprime tout : Preview, vidéos Stream `clip-pr-<n>`, Workers (et leurs Durable Objects), Workflow, Queue, bucket R2, Hyperdrive, branche Neon. Les PR venues d'un fork n'ont ni secrets ni environnement.
+
+La CI teste l'environnement par l'URL `workers.dev` de clip-web (ou de la Preview, `<nom>-clip-web.armand-salle.workers.dev`) : le Bot Fight Mode de `clipshare.dev` répond 403 aux runners GitHub.
 
 ## Release
 
 Un merge sur `main` déclenche, après les vérifications :
 
-1. `vp run db:migrate:production` : migrations sur la branche Neon `production` (URL demandée à l'API Neon, jamais stockée) ;
-2. le déploiement, dans l'ordre `clip-jobs` → `clip-api` → `clip-web` → `clip-hooks` (`cf deploy --mode production`) ;
-3. un contrôle de `https://clipshare.dev/api/health`.
+1. la répétition sur le staging, `vp run staging:up` : migrations sur la branche `staging`, puis clip-jobs-staging et clip-api-staging, la Preview `staging` de clip-web, et le test de fumée. Un échec arrête là : la production n'est pas touchée ;
+2. `vp run db:migrate:production` : migrations sur la branche Neon `production` (URL demandée à l'API Neon, jamais stockée) ;
+3. le déploiement, dans l'ordre `clip-jobs` → `clip-api` → `clip-web` → `clip-hooks` (`cf deploy --mode production`) ;
+4. un contrôle de `https://clipshare.dev/api/health`.
+
+Une vidéo en cours de traitement reprend sur le nouveau code : le Workflow rejoue ses étapes d'après leur nom. Renommer ou supprimer une étape demande donc de vérifier sur le staging qu'une vidéo lancée avant le déploiement se termine.
 
 Les migrations doivent donc rester compatibles avec le code déjà en production pendant le déploiement : ajouter une colonne nullable avant de l'utiliser, supprimer une colonne une release après avoir cessé de la lire.
 
