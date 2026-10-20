@@ -8,8 +8,6 @@
 //    une fois `vp run dev` démarré.
 //
 // Refuse la base de production : `databaseUrl` (packages/config) l'écarte hors prod.
-// `--reset` vide d'abord toutes les vidéos (branche Neon d'une PR, copiée de la prod) ;
-// `--no-demo` s'arrête là (les vidéos de démo n'existent que sur le faux Stream).
 import { execFileSync } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
@@ -53,14 +51,6 @@ const url =
     "Aucune base de dev. Lancez `vp run db:up`, puis copiez .env.example " +
       `en .env.local (DATABASE_URL=${LOCAL_DATABASE_URL}).`,
   );
-
-/** `--reset` : supprime toutes les vidéos avant le seed (environnements de PR). */
-const reset = process.argv.includes("--reset");
-/** `--no-demo` : pas de vidéos de démo (environnements de PR, sur le vrai Stream). */
-const demo = !process.argv.includes("--no-demo");
-if (reset && process.env.CLIP_ALLOW_PRODUCTION_DB === "1") {
-  exit("--reset est refusé avec CLIP_ALLOW_PRODUCTION_DB=1.");
-}
 
 const done = (ms: number) => EnrichmentStatus.cases.Done.make({ durationMs: ms });
 const disabled = EnrichmentStatus.cases.Disabled.make({});
@@ -175,13 +165,6 @@ const uploadMedia = Effect.fn("seed.media")(function* (demo: DemoVideo) {
 const program = Effect.gen(function* () {
   const db = yield* Db;
   yield* migrate(db, { migrationsFolder });
-  if (reset) {
-    // Environnement de PR : la branche Neon hérite des vidéos de production (fichiers
-    // Stream de la prod, emails de leurs propriétaires) → base vidée à sa création.
-    yield* db.delete(videos);
-    console.log("Base vidée.");
-  }
-  if (!demo) return;
   // Rejouable : les vidéos de démo (et, en cascade, leurs commentaires) sont recréées.
   yield* db.delete(videos).where(
     inArray(

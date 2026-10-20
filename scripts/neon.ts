@@ -5,6 +5,7 @@ import { NEON_PROJECT_ID } from "@clip/config";
 export interface NeonBranch {
   readonly id: string;
   readonly name: string;
+  readonly parent_id?: string;
 }
 
 const neon = async <A>(method: string, path: string, body?: unknown): Promise<A> => {
@@ -35,22 +36,41 @@ export const findBranch = async (name: string): Promise<NeonBranch | null> => {
 };
 
 /**
- * Branche copiée de la branche par défaut (production). Avec `ttlDays`, elle expire seule
- * (comme neon.ts) ; sans, elle est permanente (staging).
+ * Nouvelle branche, copiée de `parent` (la branche par défaut, production, s'il est
+ * absent). Avec `ttlDays`, elle expire seule ; sans, elle est permanente.
+ *
+ * `schemaOnly` : tables sans aucune ligne (fonction bêta de Neon). La branche est une
+ * nouvelle branche racine, sans parent (pas de « reset from parent »), et le nombre de
+ * branches racines par projet est limité par l'offre Neon : réservé au staging.
  */
 export const createBranch = async (
   name: string,
-  options: { readonly ttlDays?: number },
+  options: {
+    readonly ttlDays?: number;
+    readonly parent?: NeonBranch;
+    readonly schemaOnly?: boolean;
+  },
 ): Promise<NeonBranch> => {
   const expiresAt =
     options.ttlDays === undefined
       ? undefined
       : new Date(Date.now() + options.ttlDays * 24 * 3600 * 1000).toISOString();
   const { branch } = await neon<{ branch: NeonBranch }>("POST", "/branches", {
-    branch: { name, ...(expiresAt && { expires_at: expiresAt }) },
+    branch: {
+      name,
+      ...(expiresAt && { expires_at: expiresAt }),
+      ...(options.parent && { parent_id: options.parent.id }),
+      ...(options.schemaOnly && { init_source: "schema-only" }),
+    },
     endpoints: [{ type: "read_write" }],
   });
   return branch;
+};
+
+/** Branches copiées de `branch` (Neon refuse de supprimer une branche qui en a). */
+export const childBranches = async (branch: NeonBranch): Promise<ReadonlyArray<NeonBranch>> => {
+  const { branches } = await neon<{ branches: ReadonlyArray<NeonBranch> }>("GET", "/branches");
+  return branches.filter((b) => b.parent_id === branch.id);
 };
 
 export const deleteBranch = (branch: NeonBranch) => neon("DELETE", `/branches/${branch.id}`);

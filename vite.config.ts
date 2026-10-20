@@ -31,6 +31,7 @@ export default defineConfig({
       "pr:preview": { command: "node scripts/env.ts preview", cache: false },
       "pr:down": { command: "node scripts/env.ts down", cache: false },
       "staging:up": { command: "node scripts/env.ts up staging", cache: false },
+      "staging:reset": { command: "node scripts/env.ts reset staging", cache: false },
       smoke: { command: "node scripts/smoke.ts", cache: false },
     },
   },
