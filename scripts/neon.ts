@@ -1,59 +1,90 @@
-// API REST de Neon (sans dépendance), pour la CI et les scripts : branches de PR et
-// URL de connexion. Clé dans NEON_API_KEY (de préférence limitée au projet Clip).
+// Branches Neon et URL de connexion, par la CLI de Neon (`neonctl`, dans le catalog).
+// En local, la session de `neonctl auth` suffit ; en CI, la CLI lit NEON_API_KEY (de
+// préférence une clé limitée au projet Clip). Aucune valeur secrète n'est affichée.
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { NEON_PROJECT_ID } from "@clip/config";
 
 export interface NeonBranch {
   readonly id: string;
   readonly name: string;
+  readonly parent_id?: string;
 }
 
-const neon = async <A>(method: string, path: string, body?: unknown): Promise<A> => {
-  const key = process.env.NEON_API_KEY;
-  if (!key) throw new Error("NEON_API_KEY manquant");
-  const response = await fetch(
-    `https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}${path}`,
-    {
-      method,
-      headers: {
-        authorization: `Bearer ${key}`,
-        accept: "application/json",
-        ...(body === undefined ? {} : { "content-type": "application/json" }),
-      },
-      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-    },
-  );
-  if (!response.ok) throw new Error(`Neon ${method} ${path} : HTTP ${response.status}`);
-  return (await response.json()) as A;
+const root = fileURLToPath(new URL("..", import.meta.url).href);
+
+/** `neonctl <args>` sur le projet Clip ; sortie JSON, sauf `json: false`. */
+const neonctl = (args: ReadonlyArray<string>, json = true): string => {
+  try {
+    return execFileSync(
+      "vp",
+      [
+        "exec",
+        "neonctl",
+        ...args,
+        "--project-id",
+        NEON_PROJECT_ID,
+        ...(json ? ["--output", "json"] : []),
+        "--no-color",
+      ],
+      { cwd: root, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+    );
+  } catch (error) {
+    // stderr seulement : stdout peut contenir une URL de connexion.
+    const stderr = String((error as { stderr?: unknown }).stderr ?? "").trim();
+    throw new Error(`neonctl ${args.slice(0, 2).join(" ")} : ${stderr}`, { cause: error });
+  }
 };
 
-export const findBranch = async (name: string): Promise<NeonBranch | null> => {
-  const { branches } = await neon<{ branches: ReadonlyArray<NeonBranch> }>(
-    "GET",
-    `/branches?search=${encodeURIComponent(name)}`,
-  );
-  return branches.find((b) => b.name === name) ?? null;
-};
+const listBranches = (): ReadonlyArray<NeonBranch> =>
+  JSON.parse(neonctl(["branches", "list"])) as ReadonlyArray<NeonBranch>;
+
+export const findBranch = async (name: string): Promise<NeonBranch | null> =>
+  listBranches().find((b) => b.name === name) ?? null;
 
 /**
- * Branche copiée de la branche par défaut (production). Avec `ttlDays`, elle expire seule
- * (comme neon.ts) ; sans, elle est permanente (staging).
+ * Nouvelle branche, copiée de `parent` (la branche par défaut, production, s'il est
+ * absent). Avec `ttlDays`, elle expire seule ; sans, elle est permanente.
+ *
+ * `schemaOnly` : tables sans aucune ligne (fonction bêta de Neon). La branche est une
+ * nouvelle branche racine, sans parent (pas de « reset from parent »), et le nombre de
+ * branches racines par projet est limité par l'offre Neon : réservé au staging.
  */
 export const createBranch = async (
   name: string,
-  options: { readonly ttlDays?: number },
+  options: {
+    readonly ttlDays?: number;
+    readonly parent?: NeonBranch;
+    readonly schemaOnly?: boolean;
+  },
 ): Promise<NeonBranch> => {
   const expiresAt =
     options.ttlDays === undefined
       ? undefined
       : new Date(Date.now() + options.ttlDays * 24 * 3600 * 1000).toISOString();
-  const { branch } = await neon<{ branch: NeonBranch }>("POST", "/branches", {
-    branch: { name, ...(expiresAt && { expires_at: expiresAt }) },
-    endpoints: [{ type: "read_write" }],
-  });
-  return branch;
+  const out = JSON.parse(
+    neonctl([
+      "branches",
+      "create",
+      "--name",
+      name,
+      ...(options.parent ? ["--parent", options.parent.id] : []),
+      ...(options.schemaOnly ? ["--schema-only"] : []),
+      ...(expiresAt ? ["--expires-at", expiresAt] : []),
+      // Sans identifiants dans la sortie : `connectionUri` les demande à part.
+      "--no-secrets",
+    ]),
+  ) as { branch?: NeonBranch } & Partial<NeonBranch>;
+  return out.branch ?? (out as NeonBranch);
 };
 
-export const deleteBranch = (branch: NeonBranch) => neon("DELETE", `/branches/${branch.id}`);
+/** Branches copiées de `branch` (Neon refuse de supprimer une branche qui en a). */
+export const childBranches = async (branch: NeonBranch): Promise<ReadonlyArray<NeonBranch>> =>
+  listBranches().filter((b) => b.parent_id === branch.id);
+
+export const deleteBranch = async (branch: NeonBranch): Promise<void> => {
+  neonctl(["branches", "delete", branch.id]);
+};
 
 /**
  * URL directe (non poolée) : migrations et Hyperdrive gèrent eux-mêmes leurs connexions.
@@ -63,10 +94,17 @@ export const connectionUri = async (branch: NeonBranch): Promise<URL> => {
   // Le calcul d'une nouvelle branche peut mettre quelques secondes à démarrer.
   for (let i = 0; ; i++) {
     try {
-      const { uri } = await neon<{ uri: string }>(
-        "GET",
-        `/connection_uri?branch_id=${branch.id}&database_name=neondb&role_name=neondb_owner`,
-      );
+      const uri = neonctl(
+        [
+          "connection-string",
+          branch.id,
+          "--database-name",
+          "neondb",
+          "--role-name",
+          "neondb_owner",
+        ],
+        false,
+      ).trim();
       const parsed = new URL(uri);
       if (process.env.GITHUB_ACTIONS) console.log(`::add-mask::${parsed.password}`);
       return parsed;

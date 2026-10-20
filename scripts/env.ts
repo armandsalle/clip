@@ -1,7 +1,8 @@
 // Environnements déployés hors production (`vp run pr:up <n>`, `pr:preview <n>`,
 // `pr:down <n>`, `staging:up`).
 //
-// up <n>       : environnement complet d'une PR serveur. Branche Neon pr-<n> (TTL 7 j) →
+// up <n>       : environnement complet d'une PR serveur. Branche Neon pr-<n> (TTL 7 j,
+//                copiée du staging : jamais de données de production) →
 //                migrations → Hyperdrive clip-neon-pr-<n> → Queue clip-notifications-pr-<n>
 //                → déploiement clip-jobs, clip-api, clip-web (mode pr-<n>, dans cet ordre).
 //                La Preview pr-<n> d'une ancienne version « interface » est d'abord
@@ -12,30 +13,36 @@
 // down <n>     : supprime la Preview et tout ce que `up` a créé (Workers, Workflow, Queue,
 //                bucket R2, Hyperdrive, branche Neon). Une ressource absente est ignorée.
 // up staging   : staging permanent. Même chaîne que `up <n>` sur la branche Neon `staging`
-//                (sans expiration), puis la Preview `staging` de clip-web.
+//                (schéma seul, sans expiration), puis la Preview `staging` de clip-web.
+//                À sa création, la branche a les tables de la prod sans aucune ligne :
+//                base vidée et migrations rejouées depuis la première (packages/db).
+// reset staging: repart de zéro (vidéos Stream `clip-staging`, bucket, branche Neon
+//                supprimés), puis `up staging`. Neon ne sait pas remettre à zéro une
+//                branche « schéma seul » : elle est recréée.
 //
 // Toutes les étapes sont rejouables : chacune réutilise ce qui existe déjà. Staging et PR
 // utilisent le vrai Stream et la vraie IA : chaque vidéo est étiquetée `clip-<mode>`
 // (créateur), clip-hooks lui relaie le webhook « vidéo prête ». Emails, Email Routing et
 // Container sont coupés (voir packages/config).
 //
-// Variables : CLOUDFLARE_API_TOKEN (ou `cf auth login`), NEON_API_KEY. Aucune valeur
+// Accès : CLOUDFLARE_API_TOKEN (ou `cf auth login`) et NEON_API_KEY (ou `neonctl auth`,
+// voir scripts/neon.ts). Aucune valeur
 // secrète n'est affichée : le mot de passe de la branche est masqué dans GitHub Actions.
 import { execFileSync } from "node:child_process";
 import { appendFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { ACCOUNT_ID, resourceNames, STAGING, streamCreator, WORKERS_SUBDOMAIN } from "@clip/config";
-import { connectionUri, createBranch, deleteBranch, findBranch } from "./neon.ts";
+import { childBranches, connectionUri, createBranch, deleteBranch, findBranch } from "./neon.ts";
 
 const root = fileURLToPath(new URL("..", import.meta.url).href);
 const [action, target] = process.argv.slice(2);
 const staging = target === STAGING;
 if (
-  (action !== "up" && action !== "down" && action !== "preview") ||
+  (action !== "up" && action !== "down" && action !== "preview" && action !== "reset") ||
   !target ||
-  !(/^\d+$/.test(target) || (staging && action === "up"))
+  !(staging ? action === "up" || action === "reset" : /^\d+$/.test(target) && action !== "reset")
 ) {
-  console.error("Usage : node scripts/env.ts up|preview|down <numéro de PR>  |  up staging");
+  console.error("Usage : node scripts/env.ts up|preview|down <numéro de PR>  |  up|reset staging");
   process.exit(1);
 }
 const mode = staging ? STAGING : `pr-${target}`;
@@ -244,7 +251,7 @@ const deployPreview = async (name: string) => {
 };
 
 const deletePreview = (name: string) =>
-  attempt(`Preview ${name}`, () => cf(["previews", "delete", name, "--worker", web]));
+  attempt(`Preview ${name}`, () => cf(["previews", "delete", name, "--worker", web, "--force"]));
 
 const up = async () => {
   if (!staging) {
@@ -255,27 +262,23 @@ const up = async () => {
 
   step(`Branche Neon ${mode}`);
   const existing = await findBranch(mode);
-  // Le staging est permanent : sa branche n'expire pas.
-  const branch = existing ?? (await createBranch(mode, staging ? {} : { ttlDays: 7 }));
+  const branch = existing ?? (await createDatabaseBranch());
   const db = await connectionUri(branch);
   const dbEnv = { DATABASE_URL: db.href, DATABASE_URL_UNPOOLED: db.href };
-
-  step("Migrations");
-  execFileSync("vp", ["exec", "drizzle-kit", "migrate"], {
-    cwd: `${root}packages/db`,
-    env: { ...baseEnv(), ...dbEnv },
-    stdio: "inherit",
-  });
-
-  if (existing === null) {
-    // Branche neuve, copiée de la prod : vidée une fois, juste après les migrations (les
-    // déploiements suivants gardent les vidéos déposées).
-    step(`Base ${mode} vidée`);
-    execFileSync("node", ["scripts/seed.ts", "--reset", "--no-demo"], {
+  const inDb = (command: string, args: ReadonlyArray<string>) =>
+    execFileSync(command, args, {
       cwd: `${root}packages/db`,
       env: { ...baseEnv(), ...dbEnv },
       stdio: "inherit",
     });
+
+  if (staging && existing === null) {
+    // Schéma seul : tables vides et journal des migrations vide, on repart de zéro.
+    step("Base reconstruite depuis les migrations");
+    inDb("node", ["scripts/rebuild.ts"]);
+  } else {
+    step("Migrations");
+    inDb("vp", ["exec", "drizzle-kit", "migrate"]);
   }
 
   step(`Hyperdrive ${names.hyperdrive}`);
@@ -327,6 +330,28 @@ const up = async () => {
   step(`Attente de ${ciUrl}`);
   await waitForHealth(ciUrl);
   output({ url, ciUrl, kind: "complet" });
+};
+
+/**
+ * Branche Neon d'un environnement, sans aucune donnée de production :
+ * - staging : « schéma seul » depuis production (les tables, aucune ligne) ;
+ * - PR : copie du staging (ses tables, ses données de test, son journal de migrations),
+ *   qui expire seule au bout de 7 jours.
+ */
+const createDatabaseBranch = async () => {
+  if (staging) {
+    const production =
+      (await findBranch("production")) ?? fail("branche Neon « production » introuvable");
+    return createBranch(mode, { parent: production, schemaOnly: true });
+  }
+  const parent =
+    (await findBranch(STAGING)) ??
+    fail("branche Neon « staging » introuvable : lancez d'abord `vp run staging:up`");
+  return createBranch(mode, { parent, ttlDays: 7 });
+};
+
+const fail = (message: string): never => {
+  throw new Error(message);
 };
 
 /** PR d'interface : Preview sur le staging, sauf si la PR a déjà son environnement complet. */
@@ -411,4 +436,32 @@ const down = async () => {
   console.log(`\n✓ environnement ${mode} supprimé`);
 };
 
-await (action === "up" ? up() : action === "preview" ? preview() : down());
+/** Staging remis à zéro : la branche « schéma seul » est recréée, puis `up`. */
+const reset = async () => {
+  const current = await findBranch(mode);
+  const children = current ? await childBranches(current) : [];
+  if (children.length > 0) {
+    // Les branches des PR complètes sont copiées du staging.
+    fail(
+      `branches Neon copiées du staging : ${children.map((b) => b.name).join(", ")}. ` +
+        "Fermez ces PR (ou `vp run pr:down <n>`), puis relancez.",
+    );
+  }
+
+  step(`Vidéos Stream (créateur ${streamCreator(mode)})`);
+  attempt("vidéos Stream", deleteStreamVideos);
+
+  step(`Bucket R2 ${names.media} vidé`);
+  attempt(names.media, emptyBucket);
+
+  step(`Branche Neon ${mode} supprimée`);
+  if (current) await deleteBranch(current);
+
+  if (failures.length > 0) {
+    throw new Error(`remise à zéro incomplète : ${failures.join(", ")} (voir plus haut)`);
+  }
+  await up();
+};
+
+const actions = { up, preview, down, reset } as const;
+await actions[action]();
