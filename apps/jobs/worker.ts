@@ -20,6 +20,8 @@ export const jobsWorker = (mode: string | undefined, containers = withContainers
     name,
     ...runtime,
     workersDev: false,
+    // Ni workers.dev ni URL de Preview : on n'y entre que par service binding (ou route).
+    previewUrls: false,
     placement: NEAR_DATABASE,
     env: {
       STORE: bindings.text(s.store),

@@ -21,6 +21,8 @@ export const hooksWorker = (mode: string | undefined) => {
     name: "clip-hooks",
     ...runtime,
     workersDev: false,
+    // Ni workers.dev ni URL de Preview : on n'y entre que par service binding (ou route).
+    previewUrls: false,
     env: {
       STREAM_WEBHOOK_SECRET: bindings.secretsStoreSecret({
         storeId: SECRETS_STORE_ID,
